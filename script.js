@@ -31,6 +31,27 @@ class AppState {
         this.allRepos = [];
         this.allProperties = [];
         this.promptContent = '';
+        
+        // Clear UI state
+        this.clearUIState();
+    }
+    
+    clearUIState() {
+        // Clear use case selection
+        useCaseButtons.forEach(btn => btn.classList.remove('selected'));
+        
+        // Clear form inputs
+        if (orgNameInput) orgNameInput.value = '';
+        if (authTokenInput) authTokenInput.value = '';
+        if (orgDisplay) orgDisplay.textContent = '';
+        if (promptContentTextarea) promptContentTextarea.value = '';
+        if (selectedUseCaseDisplay) selectedUseCaseDisplay.textContent = '';
+        
+        // Clear checkboxes
+        document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        
+        // Reset dropdown
+        if (selectionDropdown) selectionDropdown.value = 'all';
     }
 }
 
@@ -54,6 +75,9 @@ const targetReposList = document.getElementById('target-repos-list');
 const loadingModal = document.getElementById('loading-modal');
 const successModal = document.getElementById('success-modal');
 const loadingMessage = document.getElementById('loading-message');
+
+// Browser history management
+let isNavigatingFromHistory = false;
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', initializeApp);
@@ -83,17 +107,146 @@ function initializeApp() {
     // Input validation
     orgNameInput.addEventListener('input', validateInputs);
     authTokenInput.addEventListener('input', validateInputs);
+    
+    // Progress step navigation
+    progressSteps.forEach(step => {
+        step.addEventListener('click', (e) => handleStepClick(e.target.closest('.progress-step')));
+    });
+    
+    // Browser back/forward button support
+    window.addEventListener('popstate', handlePopState);
+    
+    // Handle hash changes (for direct URL navigation)
+    window.addEventListener('hashchange', handleHashChange);
+    
+    // Keyboard navigation support
+    document.addEventListener('keydown', handleKeyboardNavigation);
+    
+    // Check for initial step from URL hash
+    const initialStep = getStepFromHash();
+    if (initialStep > 1) {
+        goToStep(initialStep);
+    } else {
+        // Set initial history state
+        updateHistoryState(1);
+    }
+}
+
+function handleKeyboardNavigation(event) {
+    // Only handle keyboard navigation when not in form inputs
+    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+        return;
+    }
+    
+    if (event.altKey) {
+        switch (event.key) {
+            case 'ArrowLeft':
+                event.preventDefault();
+                navigateToPreviousStep();
+                break;
+            case 'ArrowRight':
+                event.preventDefault();
+                navigateToNextStep();
+                break;
+        }
+    }
+}
+
+function navigateToPreviousStep() {
+    if (appState.currentStep > 1) {
+        const previousStep = appState.currentStep - 1;
+        if (validateStepAccess(previousStep)) {
+            goToStep(previousStep);
+        }
+    }
+}
+
+function navigateToNextStep() {
+    if (appState.currentStep < 4) {
+        const nextStep = appState.currentStep + 1;
+        if (validateStepAccess(nextStep)) {
+            goToStep(nextStep);
+        } else {
+            showNotification('Please complete the current step before proceeding.', 'warning');
+        }
+    }
+}
+
+function getStepFromHash() {
+    const hash = window.location.hash;
+    const match = hash.match(/#step-(\d+)/);
+    if (match) {
+        const step = parseInt(match[1]);
+        return (step >= 1 && step <= 4) ? step : 1;
+    }
+    return 1;
+}
+
+function updateHistoryState(step) {
+    if (!isNavigatingFromHistory) {
+        const state = {
+            step: step,
+            appState: { ...appState }
+        };
+        const title = `Step ${step} - GitHub Copilot Agent Quickstart`;
+        const url = `${window.location.pathname}#step-${step}`;
+        
+        if (step === 1) {
+            history.replaceState(state, title, url);
+        } else {
+            history.pushState(state, title, url);
+        }
+    }
+}
+
+function handlePopState(event) {
+    if (event.state && event.state.step) {
+        isNavigatingFromHistory = true;
+        
+        // Restore app state
+        Object.assign(appState, event.state.appState);
+        
+        // Navigate to the step
+        goToStep(event.state.step);
+        
+        isNavigatingFromHistory = false;
+    }
+}
+
+function handleHashChange() {
+    if (!isNavigatingFromHistory) {
+        const step = getStepFromHash();
+        if (validateStepAccess(step)) {
+            isNavigatingFromHistory = true;
+            goToStep(step);
+            isNavigatingFromHistory = false;
+        } else {
+            // Reset hash to current valid step
+            window.location.hash = `step-${appState.currentStep}`;
+        }
+    }
 }
 
 // Step navigation
 function goToStep(step) {
     // Update progress bar
     progressSteps.forEach((el, index) => {
-        el.classList.remove('active', 'completed');
-        if (index + 1 === step) {
+        el.classList.remove('active', 'completed', 'clickable');
+        const stepNumber = index + 1;
+        
+        if (stepNumber === step) {
             el.classList.add('active');
-        } else if (index + 1 < step) {
+        } else if (stepNumber < step) {
             el.classList.add('completed');
+            // Make completed steps clickable
+            if (canNavigateToStep(stepNumber)) {
+                el.classList.add('clickable');
+            }
+        }
+        
+        // Make any accessible previous steps clickable
+        if (stepNumber < step && canNavigateToStep(stepNumber)) {
+            el.classList.add('clickable');
         }
     });
     
@@ -103,6 +256,142 @@ function goToStep(step) {
     });
     
     appState.currentStep = step;
+    
+    // Update browser history
+    updateHistoryState(step);
+    
+    // Restore UI state when navigating back
+    restoreStepState(step);
+}
+
+function restoreStepState(step) {
+    switch (step) {
+        case 1:
+            // Restore use case selection
+            if (appState.selectedUseCase) {
+                useCaseButtons.forEach(btn => {
+                    btn.classList.toggle('selected', btn.dataset.useCase === appState.selectedUseCase);
+                });
+            }
+            break;
+            
+        case 2:
+            // Restore authentication form
+            orgNameInput.value = appState.orgName || '';
+            authTokenInput.value = appState.authToken || '';
+            validateInputs();
+            break;
+            
+        case 3:
+            // Restore repository selection
+            if (appState.orgName) {
+                orgDisplay.textContent = appState.orgName;
+            }
+            selectionDropdown.value = appState.selectionMethod || 'all';
+            handleSelectionMethodChange();
+            // Restore selected repos/properties if they exist
+            restoreSelections();
+            break;
+            
+        case 4:
+            // Restore prompt content
+            if (appState.selectedUseCase) {
+                if (appState.promptContent) {
+                    promptContentTextarea.value = appState.promptContent;
+                } else {
+                    // Load prompt if not already loaded
+                    loadPromptForUseCase();
+                }
+                selectedUseCaseDisplay.textContent = getUseCaseDisplayName(appState.selectedUseCase);
+                updateTargetReposList();
+            }
+            break;
+    }
+}
+
+function restoreSelections() {
+    // Restore selected repositories
+    if (appState.selectionMethod === 'selected' && appState.selectedRepos.length > 0) {
+        setTimeout(() => {
+            appState.selectedRepos.forEach(repoName => {
+                const checkbox = document.querySelector(`input[data-repo-name="${repoName}"]`);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+        }, 100);
+    }
+    
+    // Restore selected properties
+    if (appState.selectionMethod === 'properties' && appState.selectedProperties.length > 0) {
+        setTimeout(() => {
+            appState.selectedProperties.forEach(propertyName => {
+                const checkbox = document.querySelector(`input[data-property-name="${propertyName}"]`);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+        }, 100);
+    }
+}
+
+function handleStepClick(stepElement) {
+    const targetStep = parseInt(stepElement.dataset.step);
+    
+    // Only allow navigation to valid steps
+    if (validateStepAccess(targetStep)) {
+        goToStep(targetStep);
+    }
+}
+
+function canNavigateToStep(targetStep) {
+    // Always allow going to step 1
+    if (targetStep === 1) return true;
+    
+    // For step 2, need use case selected
+    if (targetStep === 2) {
+        return appState.selectedUseCase !== null;
+    }
+    
+    // For step 3, need use case selected and auth filled
+    if (targetStep === 3) {
+        return appState.selectedUseCase && appState.orgName && appState.authToken;
+    }
+    
+    // For step 4, need repos selection completed
+    if (targetStep === 4) {
+        const hasValidSelection = 
+            appState.selectionMethod === 'all' ||
+            (appState.selectionMethod === 'selected' && appState.selectedRepos.length > 0) ||
+            (appState.selectionMethod === 'properties' && appState.selectedProperties.length > 0);
+        
+        return appState.selectedUseCase && appState.orgName && appState.authToken && hasValidSelection;
+    }
+    
+    return false;
+}
+
+function validateStepAccess(targetStep) {
+    if (!canNavigateToStep(targetStep)) {
+        // Show a user-friendly message about what's missing
+        let message = '';
+        switch (targetStep) {
+            case 2:
+                message = 'Please select a use case first.';
+                break;
+            case 3:
+                message = 'Please complete authentication setup first.';
+                break;
+            case 4:
+                message = 'Please complete repository selection first.';
+                break;
+        }
+        
+        // Show a brief notification instead of an alert
+        showNotification(message, 'warning');
+        return false;
+    }
+    return true;
 }
 
 // Use case selection
@@ -112,10 +401,12 @@ function selectUseCase(button) {
     
     appState.selectedUseCase = button.dataset.useCase;
     
-    // Auto-advance to next step after a short delay
-    setTimeout(() => {
-        goToStep(2);
-    }, 500);
+    // Only auto-advance if we're on step 1 and this is a fresh selection (not navigating back)
+    if (appState.currentStep === 1 && (!appState.orgName && !appState.authToken) && !isNavigatingFromHistory) {
+        setTimeout(() => {
+            goToStep(2);
+        }, 500);
+    }
 }
 
 // Authentication validation
@@ -126,7 +417,25 @@ function validateInputs() {
     appState.orgName = orgName;
     appState.authToken = authToken;
     
-    authNextBtn.disabled = !orgName || !authToken;
+    // Enable/disable the next button
+    if (authNextBtn) {
+        authNextBtn.disabled = !orgName || !authToken;
+    }
+    
+    // Update progress step accessibility
+    updateStepAccessibility();
+}
+
+function updateStepAccessibility() {
+    // Update which steps are clickable based on current state
+    progressSteps.forEach((el, index) => {
+        const stepNumber = index + 1;
+        el.classList.remove('clickable');
+        
+        if (stepNumber < appState.currentStep && canNavigateToStep(stepNumber)) {
+            el.classList.add('clickable');
+        }
+    });
 }
 
 function handleAuthNext() {
@@ -223,6 +532,7 @@ function toggleRepoSelection(repoName) {
     } else {
         appState.selectedRepos.splice(index, 1);
     }
+    updateStepAccessibility();
 }
 
 async function loadCustomProperties() {
@@ -284,6 +594,7 @@ function togglePropertySelection(propertyName) {
     } else {
         appState.selectedProperties.splice(index, 1);
     }
+    updateStepAccessibility();
 }
 
 // Search functionality
@@ -515,36 +826,142 @@ async function createIssueAndAssignCopilot(repoName) {
 }
 
 async function assignCopilotToIssue(repoName, issueNumber) {
-    // First, try to find copilot in assignable users
-    const assigneesResponse = await fetch(`https://api.github.com/repos/${appState.orgName}/${repoName}/assignees`, {
-        headers: {
-            'Authorization': `token ${appState.authToken}`,
-            'Accept': 'application/vnd.github.v3+json'
-        }
-    });
-    
-    if (assigneesResponse.ok) {
-        const assignees = await assigneesResponse.json();
-        const copilotUser = assignees.find(user => user.login === 'copilot-swe-agent' || user.login.includes('copilot'));
+    try {
+        // First, get the issue's node ID using REST API
+        const issueResponse = await fetch(`https://api.github.com/repos/${appState.orgName}/${repoName}/issues/${issueNumber}`, {
+            headers: {
+                'Authorization': `token ${appState.authToken}`,
+                'Accept': 'application/vnd.github.v3+json'
+            }
+        });
         
-        if (copilotUser) {
-            const assignResponse = await fetch(`https://api.github.com/repos/${appState.orgName}/${repoName}/issues/${issueNumber}/assignees`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `token ${appState.authToken}`,
-                    'Accept': 'application/vnd.github.v3+json',
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    assignees: [copilotUser.login]
-                })
-            });
-            
-            if (!assignResponse.ok) {
-                throw new Error(`Failed to assign Copilot to issue: ${assignResponse.status}`);
+        if (!issueResponse.ok) {
+            throw new Error(`Failed to get issue details: ${issueResponse.status}`);
+        }
+        
+        const issue = await issueResponse.json();
+        const issueNodeId = issue.node_id;
+        
+        // Find Copilot bot using GraphQL suggestedActors query
+        const copilotAssignee = await findCopilotBot(repoName);
+        
+        if (!copilotAssignee) {
+            console.warn(`Copilot bot not found in suggested actors for ${repoName}`);
+            return;
+        }
+        
+        // Assign Copilot using GraphQL mutation
+        await assignCopilotUsingGraphQL(issueNodeId, copilotAssignee.id);
+        
+    } catch (error) {
+        console.error(`Error assigning Copilot to issue in ${repoName}:`, error);
+        throw error;
+    }
+}
+
+async function findCopilotBot(repoName) {
+    let endCursor = null;
+    let hasNextPage = true;
+    
+    while (hasNextPage) {
+        const query = `
+            query FindCopilotBot($owner: String!, $name: String!, $endCursor: String) {
+                repository(owner: $owner, name: $name) {
+                    suggestedActors(first: 100, after: $endCursor, capabilities: CAN_BE_ASSIGNED) {
+                        nodes {
+                            ... on Bot {
+                                id
+                                login
+                                __typename
+                            }
+                        }
+                        pageInfo {
+                            hasNextPage
+                            endCursor
+                        }
+                    }
+                }
+            }
+        `;
+        
+        const variables = {
+            owner: appState.orgName,
+            name: repoName,
+            endCursor: endCursor
+        };
+        
+        const response = await fetch('https://api.github.com/graphql', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${appState.authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ query, variables })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`GraphQL query failed: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.errors) {
+            throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
+        }
+        
+        const suggestedActors = data.data.repository.suggestedActors;
+        
+        // Look for copilot-swe-agent in the current page
+        for (const node of suggestedActors.nodes) {
+            if (node.login === 'copilot-swe-agent') {
+                return node;
             }
         }
+        
+        // Check if there are more pages
+        hasNextPage = suggestedActors.pageInfo.hasNextPage;
+        endCursor = suggestedActors.pageInfo.endCursor;
     }
+    
+    return null; // Copilot bot not found
+}
+
+async function assignCopilotUsingGraphQL(issueNodeId, copilotId) {
+    const mutation = `
+        mutation AssignCopilot($input: ReplaceActorsForAssignableInput!) {
+            replaceActorsForAssignable(input: $input) {
+                __typename
+            }
+        }
+    `;
+    
+    const variables = {
+        input: {
+            assignableId: issueNodeId,
+            actorIds: [copilotId]
+        }
+    };
+    
+    const response = await fetch('https://api.github.com/graphql', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${appState.authToken}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ mutation, variables })
+    });
+    
+    if (!response.ok) {
+        throw new Error(`GraphQL mutation failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.errors) {
+        throw new Error(`GraphQL mutation errors: ${JSON.stringify(data.errors)}`);
+    }
+    
+    return data.data.replaceActorsForAssignable;
 }
 
 // UI helper functions
@@ -563,6 +980,27 @@ function updateLoadingMessage(message) {
 
 function showSuccess() {
     successModal.classList.remove('hidden');
+}
+
+function showNotification(message, type = 'info') {
+    // Create notification element if it doesn't exist
+    let notification = document.getElementById('notification');
+    if (!notification) {
+        notification = document.createElement('div');
+        notification.id = 'notification';
+        notification.className = 'notification';
+        document.body.appendChild(notification);
+    }
+    
+    // Set notification content and type
+    notification.textContent = message;
+    notification.className = `notification notification-${type}`;
+    notification.classList.add('show');
+    
+    // Auto-hide after 3 seconds
+    setTimeout(() => {
+        notification.classList.remove('show');
+    }, 3000);
 }
 
 // Initialize selection method handler
