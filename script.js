@@ -12,6 +12,23 @@ class AppState {
         this.allProperties = [];
         this.promptContent = '';
         
+        // Pagination state
+        this.reposPagination = {
+            currentPage: 1,
+            itemsPerPage: 50,
+            totalPages: 1,
+            filteredRepos: [],
+            searchTerm: ''
+        };
+        
+        this.propertiesPagination = {
+            currentPage: 1,
+            itemsPerPage: 50,
+            totalPages: 1,
+            filteredProperties: [],
+            searchTerm: ''
+        };
+        
         // Use case prompts URLs
         this.promptUrls = {
             'tests': 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main/chatmodes/tdd-red.chatmode.md',
@@ -31,6 +48,23 @@ class AppState {
         this.allRepos = [];
         this.allProperties = [];
         this.promptContent = '';
+        
+        // Reset pagination state
+        this.reposPagination = {
+            currentPage: 1,
+            itemsPerPage: 50,
+            totalPages: 1,
+            filteredRepos: [],
+            searchTerm: ''
+        };
+        
+        this.propertiesPagination = {
+            currentPage: 1,
+            itemsPerPage: 50,
+            totalPages: 1,
+            filteredProperties: [],
+            searchTerm: ''
+        };
         
         // Clear UI state
         this.clearUIState();
@@ -63,7 +97,10 @@ const progressSteps = document.querySelectorAll('.progress-step');
 const stepContents = document.querySelectorAll('.step-content');
 const useCaseButtons = document.querySelectorAll('.use-case-btn');
 const authNextBtn = document.getElementById('auth-next');
+const authBackBtn = document.getElementById('auth-back');
 const reposNextBtn = document.getElementById('repos-next');
+const reposBackBtn = document.getElementById('repos-back');
+const promptBackBtn = document.getElementById('prompt-back');
 const executeBtn = document.getElementById('execute-workflow');
 const selectionDropdown = document.getElementById('selection-dropdown');
 const orgNameInput = document.getElementById('org-name');
@@ -91,6 +128,11 @@ function initializeApp() {
     // Authentication next button
     authNextBtn.addEventListener('click', handleAuthNext);
     
+    // Back button handlers
+    if (authBackBtn) authBackBtn.addEventListener('click', () => goToStep(1));
+    if (reposBackBtn) reposBackBtn.addEventListener('click', () => goToStep(2));
+    if (promptBackBtn) promptBackBtn.addEventListener('click', () => goToStep(3));
+    
     // Repository selection next button
     reposNextBtn.addEventListener('click', handleReposNext);
     
@@ -103,6 +145,12 @@ function initializeApp() {
     // Search functionality
     document.getElementById('repo-search').addEventListener('input', filterRepos);
     document.getElementById('properties-search').addEventListener('input', filterProperties);
+    
+    // Pagination functionality
+    document.getElementById('repos-prev-page').addEventListener('click', () => changeReposPage(-1));
+    document.getElementById('repos-next-page').addEventListener('click', () => changeReposPage(1));
+    document.getElementById('properties-prev-page').addEventListener('click', () => changePropertiesPage(-1));
+    document.getElementById('properties-next-page').addEventListener('click', () => changePropertiesPage(1));
     
     // Input validation
     orgNameInput.addEventListener('input', validateInputs);
@@ -313,6 +361,8 @@ function restoreSelections() {
     // Restore selected repositories
     if (appState.selectionMethod === 'selected' && appState.selectedRepos.length > 0) {
         setTimeout(() => {
+            updateSelectedReposSummary();
+            // Update checkboxes for visible repos
             appState.selectedRepos.forEach(repoName => {
                 const checkbox = document.querySelector(`input[data-repo-name="${repoName}"]`);
                 if (checkbox) {
@@ -325,6 +375,8 @@ function restoreSelections() {
     // Restore selected properties
     if (appState.selectionMethod === 'properties' && appState.selectedProperties.length > 0) {
         setTimeout(() => {
+            updateSelectedPropertiesSummary();
+            // Update checkboxes for visible properties
             appState.selectedProperties.forEach(propertyName => {
                 const checkbox = document.querySelector(`input[data-property-name="${propertyName}"]`);
                 if (checkbox) {
@@ -479,20 +531,49 @@ async function loadRepositories() {
     try {
         showLoading('Loading repositories...');
         
-        const response = await fetch(`https://api.github.com/orgs/${appState.orgName}/repos?per_page=100&sort=updated`, {
-            headers: {
-                'Authorization': `token ${appState.authToken}`,
-                'Accept': 'application/vnd.github.v3+json'
-            }
-        });
+        // Load up to 5000 repositories (GitHub API allows 1000 per page max)
+        const allRepos = [];
+        const maxRepos = 5000;
+        const perPage = 100; // GitHub's max per page
+        let page = 1;
         
-        if (!response.ok) {
-            throw new Error(`Failed to load repositories: ${response.status} ${response.statusText}`);
+        while (allRepos.length < maxRepos) {
+            const response = await fetch(`https://api.github.com/orgs/${appState.orgName}/repos?per_page=${perPage}&page=${page}&sort=updated`, {
+                headers: {
+                    'Authorization': `token ${appState.authToken}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Failed to load repositories: ${response.status} ${response.statusText}`);
+            }
+            
+            const repos = await response.json();
+            
+            if (repos.length === 0) {
+                break; // No more repos
+            }
+            
+            allRepos.push(...repos);
+            page++;
+            
+            // Update loading message
+            updateLoadingMessage(`Loading repositories... (${allRepos.length} loaded)`);
+            
+            // Break if we've loaded the max or if we got less than a full page
+            if (allRepos.length >= maxRepos || repos.length < perPage) {
+                break;
+            }
         }
         
-        const repos = await response.json();
-        appState.allRepos = repos;
-        renderRepositories(repos);
+        appState.allRepos = allRepos.slice(0, maxRepos); // Ensure we don't exceed 5000
+        appState.reposPagination.filteredRepos = appState.allRepos;
+        appState.reposPagination.currentPage = 1;
+        appState.reposPagination.totalPages = Math.ceil(appState.allRepos.length / appState.reposPagination.itemsPerPage);
+        
+        renderRepositories();
+        updateSelectedReposSummary();
         
     } catch (error) {
         console.error('Error loading repositories:', error);
@@ -502,15 +583,21 @@ async function loadRepositories() {
     }
 }
 
-function renderRepositories(repos) {
+function renderRepositories() {
     const tbody = document.getElementById('repos-tbody');
     tbody.innerHTML = '';
     
-    repos.forEach(repo => {
+    const { currentPage, itemsPerPage, filteredRepos } = appState.reposPagination;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const reposToShow = filteredRepos.slice(startIndex, endIndex);
+    
+    reposToShow.forEach(repo => {
         const row = document.createElement('tr');
+        const isSelected = appState.selectedRepos.includes(repo.name);
         row.innerHTML = `
             <td>
-                <input type="checkbox" data-repo-name="${repo.name}" onchange="toggleRepoSelection('${repo.name}')">
+                <input type="checkbox" data-repo-name="${repo.name}" onchange="toggleRepoSelection('${repo.name}')" ${isSelected ? 'checked' : ''}>
             </td>
             <td>
                 <a href="${repo.html_url}" target="_blank" class="repo-name">${repo.name}</a>
@@ -523,6 +610,27 @@ function renderRepositories(repos) {
         `;
         tbody.appendChild(row);
     });
+    
+    updateReposPaginationControls();
+}
+
+function updateReposPaginationControls() {
+    const { currentPage, totalPages } = appState.reposPagination;
+    const prevBtn = document.getElementById('repos-prev-page');
+    const nextBtn = document.getElementById('repos-next-page');
+    const pageInfo = document.getElementById('repos-page-info');
+    
+    prevBtn.disabled = currentPage <= 1;
+    nextBtn.disabled = currentPage >= totalPages;
+    pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${appState.reposPagination.filteredRepos.length} repositories)`;
+}
+
+function changeReposPage(direction) {
+    const newPage = appState.reposPagination.currentPage + direction;
+    if (newPage >= 1 && newPage <= appState.reposPagination.totalPages) {
+        appState.reposPagination.currentPage = newPage;
+        renderRepositories();
+    }
 }
 
 function toggleRepoSelection(repoName) {
@@ -533,6 +641,40 @@ function toggleRepoSelection(repoName) {
         appState.selectedRepos.splice(index, 1);
     }
     updateStepAccessibility();
+    updateSelectedReposSummary();
+}
+
+function updateSelectedReposSummary() {
+    const countSpan = document.getElementById('selected-repos-count');
+    const listDiv = document.getElementById('selected-repos-list');
+    
+    countSpan.textContent = appState.selectedRepos.length;
+    
+    listDiv.innerHTML = '';
+    appState.selectedRepos.forEach(repoName => {
+        const tag = document.createElement('span');
+        tag.className = 'selected-item-tag';
+        tag.innerHTML = `
+            ${repoName}
+            <button class="remove-btn" onclick="removeRepoSelection('${repoName}')" title="Remove">×</button>
+        `;
+        listDiv.appendChild(tag);
+    });
+}
+
+function removeRepoSelection(repoName) {
+    const index = appState.selectedRepos.indexOf(repoName);
+    if (index !== -1) {
+        appState.selectedRepos.splice(index, 1);
+        updateSelectedReposSummary();
+        updateStepAccessibility();
+        
+        // Update the checkbox in the table if visible
+        const checkbox = document.querySelector(`input[data-repo-name="${repoName}"]`);
+        if (checkbox) {
+            checkbox.checked = false;
+        }
+    }
 }
 
 async function loadCustomProperties() {
@@ -551,8 +693,13 @@ async function loadCustomProperties() {
         }
         
         const properties = await response.json();
-        appState.allProperties = properties;
-        renderCustomProperties(properties);
+        appState.allProperties = properties.slice(0, 5000); // Limit to 5000
+        appState.propertiesPagination.filteredProperties = appState.allProperties;
+        appState.propertiesPagination.currentPage = 1;
+        appState.propertiesPagination.totalPages = Math.ceil(appState.allProperties.length / appState.propertiesPagination.itemsPerPage);
+        
+        renderCustomProperties();
+        updateSelectedPropertiesSummary();
         
     } catch (error) {
         console.error('Error loading custom properties:', error);
@@ -560,24 +707,37 @@ async function loadCustomProperties() {
         const mockProperties = [
             { property_name: 'environment', value_type: 'single_select', description: 'Deployment environment' },
             { property_name: 'team', value_type: 'string', description: 'Owning team' },
-            { property_name: 'priority', value_type: 'single_select', description: 'Project priority' }
+            { property_name: 'priority', value_type: 'single_select', description: 'Project priority' },
+            { property_name: 'framework', value_type: 'string', description: 'Technology framework' },
+            { property_name: 'status', value_type: 'single_select', description: 'Project status' }
         ];
         appState.allProperties = mockProperties;
-        renderCustomProperties(mockProperties);
+        appState.propertiesPagination.filteredProperties = appState.allProperties;
+        appState.propertiesPagination.currentPage = 1;
+        appState.propertiesPagination.totalPages = Math.ceil(appState.allProperties.length / appState.propertiesPagination.itemsPerPage);
+        
+        renderCustomProperties();
+        updateSelectedPropertiesSummary();
     } finally {
         hideLoading();
     }
 }
 
-function renderCustomProperties(properties) {
+function renderCustomProperties() {
     const tbody = document.getElementById('properties-tbody');
     tbody.innerHTML = '';
     
-    properties.forEach(property => {
+    const { currentPage, itemsPerPage, filteredProperties } = appState.propertiesPagination;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const propertiesToShow = filteredProperties.slice(startIndex, endIndex);
+    
+    propertiesToShow.forEach(property => {
         const row = document.createElement('tr');
+        const isSelected = appState.selectedProperties.includes(property.property_name);
         row.innerHTML = `
             <td>
-                <input type="checkbox" data-property-name="${property.property_name}" onchange="togglePropertySelection('${property.property_name}')">
+                <input type="checkbox" data-property-name="${property.property_name}" onchange="togglePropertySelection('${property.property_name}')" ${isSelected ? 'checked' : ''}>
             </td>
             <td>${property.property_name}</td>
             <td>${property.value_type}</td>
@@ -585,6 +745,27 @@ function renderCustomProperties(properties) {
         `;
         tbody.appendChild(row);
     });
+    
+    updatePropertiesPaginationControls();
+}
+
+function updatePropertiesPaginationControls() {
+    const { currentPage, totalPages } = appState.propertiesPagination;
+    const prevBtn = document.getElementById('properties-prev-page');
+    const nextBtn = document.getElementById('properties-next-page');
+    const pageInfo = document.getElementById('properties-page-info');
+    
+    prevBtn.disabled = currentPage <= 1;
+    nextBtn.disabled = currentPage >= totalPages;
+    pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${appState.propertiesPagination.filteredProperties.length} properties)`;
+}
+
+function changePropertiesPage(direction) {
+    const newPage = appState.propertiesPagination.currentPage + direction;
+    if (newPage >= 1 && newPage <= appState.propertiesPagination.totalPages) {
+        appState.propertiesPagination.currentPage = newPage;
+        renderCustomProperties();
+    }
 }
 
 function togglePropertySelection(propertyName) {
@@ -595,25 +776,119 @@ function togglePropertySelection(propertyName) {
         appState.selectedProperties.splice(index, 1);
     }
     updateStepAccessibility();
+    updateSelectedPropertiesSummary();
+}
+
+function updateSelectedPropertiesSummary() {
+    const countSpan = document.getElementById('selected-properties-count');
+    const listDiv = document.getElementById('selected-properties-list');
+    
+    countSpan.textContent = appState.selectedProperties.length;
+    
+    listDiv.innerHTML = '';
+    appState.selectedProperties.forEach(propertyName => {
+        const tag = document.createElement('span');
+        tag.className = 'selected-item-tag';
+        tag.innerHTML = `
+            ${propertyName}
+            <button class="remove-btn" onclick="removePropertySelection('${propertyName}')" title="Remove">×</button>
+        `;
+        listDiv.appendChild(tag);
+    });
+}
+
+function removePropertySelection(propertyName) {
+    const index = appState.selectedProperties.indexOf(propertyName);
+    if (index !== -1) {
+        appState.selectedProperties.splice(index, 1);
+        updateSelectedPropertiesSummary();
+        updateStepAccessibility();
+        
+        // Update the checkbox in the table if visible
+        const checkbox = document.querySelector(`input[data-property-name="${propertyName}"]`);
+        if (checkbox) {
+            checkbox.checked = false;
+        }
+    }
 }
 
 // Search functionality
-function filterRepos() {
-    const searchTerm = document.getElementById('repo-search').value.toLowerCase();
-    const filteredRepos = appState.allRepos.filter(repo => 
-        repo.name.toLowerCase().includes(searchTerm) ||
-        (repo.description && repo.description.toLowerCase().includes(searchTerm))
-    );
-    renderRepositories(filteredRepos);
+async function filterRepos() {
+    const searchTerm = document.getElementById('repo-search').value.toLowerCase().trim();
+    appState.reposPagination.searchTerm = searchTerm;
+    
+    if (!searchTerm) {
+        // No search term, show all loaded repos
+        appState.reposPagination.filteredRepos = appState.allRepos;
+    } else {
+        // First filter from loaded repos
+        const localMatches = appState.allRepos.filter(repo => 
+            repo.name.toLowerCase().includes(searchTerm) ||
+            (repo.description && repo.description.toLowerCase().includes(searchTerm))
+        );
+        
+        // If we have few local matches, try to search for more repos via API
+        if (localMatches.length < 10 && searchTerm.length >= 2) {
+            try {
+                const apiMatches = await searchRepositoriesAPI(searchTerm);
+                // Combine and deduplicate
+                const allMatches = [...localMatches];
+                apiMatches.forEach(repo => {
+                    if (!allMatches.find(existing => existing.name === repo.name)) {
+                        allMatches.push(repo);
+                    }
+                });
+                appState.reposPagination.filteredRepos = allMatches;
+            } catch (error) {
+                console.warn('API search failed, using local results only:', error);
+                appState.reposPagination.filteredRepos = localMatches;
+            }
+        } else {
+            appState.reposPagination.filteredRepos = localMatches;
+        }
+    }
+    
+    // Reset to first page and update pagination
+    appState.reposPagination.currentPage = 1;
+    appState.reposPagination.totalPages = Math.ceil(appState.reposPagination.filteredRepos.length / appState.reposPagination.itemsPerPage);
+    
+    renderRepositories();
+}
+
+async function searchRepositoriesAPI(searchTerm) {
+    const response = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(searchTerm)}+org:${appState.orgName}&per_page=50`, {
+        headers: {
+            'Authorization': `token ${appState.authToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+        }
+    });
+    
+    if (!response.ok) {
+        throw new Error(`Search API failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.items || [];
 }
 
 function filterProperties() {
-    const searchTerm = document.getElementById('properties-search').value.toLowerCase();
-    const filteredProperties = appState.allProperties.filter(property => 
-        property.property_name.toLowerCase().includes(searchTerm) ||
-        (property.description && property.description.toLowerCase().includes(searchTerm))
-    );
-    renderCustomProperties(filteredProperties);
+    const searchTerm = document.getElementById('properties-search').value.toLowerCase().trim();
+    appState.propertiesPagination.searchTerm = searchTerm;
+    
+    if (!searchTerm) {
+        appState.propertiesPagination.filteredProperties = appState.allProperties;
+    } else {
+        appState.propertiesPagination.filteredProperties = appState.allProperties.filter(property => 
+            property.property_name.toLowerCase().includes(searchTerm) ||
+            (property.description && property.description.toLowerCase().includes(searchTerm))
+        );
+    }
+    
+    // Reset to first page and update pagination
+    appState.propertiesPagination.currentPage = 1;
+    appState.propertiesPagination.totalPages = Math.ceil(appState.propertiesPagination.filteredProperties.length / appState.propertiesPagination.itemsPerPage);
+    
+    renderCustomProperties();
 }
 
 function handleReposNext() {

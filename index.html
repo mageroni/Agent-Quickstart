@@ -96,7 +96,10 @@
                     <p class="security-note">💡 These values are only stored for this session and will be cleared when you refresh the page.</p>
                 </div>
                 
-                <button class="next-btn" id="auth-next">Continue to Repository Selection</button>
+                <div class="step-navigation">
+                    <button class="back-btn" id="auth-back">← Back to Use Case</button>
+                    <button class="next-btn" id="auth-next">Continue to Repository Selection</button>
+                </div>
             </div>
         </div>
 
@@ -144,6 +147,15 @@
                             </tbody>
                         </table>
                     </div>
+                    <div class="pagination-container" id="repos-pagination">
+                        <button id="repos-prev-page" class="pagination-btn" disabled>← Previous</button>
+                        <span id="repos-page-info">Page 1 of 1</span>
+                        <button id="repos-next-page" class="pagination-btn" disabled>Next →</button>
+                    </div>
+                    <div class="selected-items-summary" id="selected-repos-summary">
+                        <strong>Selected repositories:</strong> <span id="selected-repos-count">0</span>
+                        <div id="selected-repos-list" class="selected-items-list"></div>
+                    </div>
                 </div>
 
                 <!-- Custom Properties Table -->
@@ -166,10 +178,22 @@
                             </tbody>
                         </table>
                     </div>
+                    <div class="pagination-container" id="properties-pagination">
+                        <button id="properties-prev-page" class="pagination-btn" disabled>← Previous</button>
+                        <span id="properties-page-info">Page 1 of 1</span>
+                        <button id="properties-next-page" class="pagination-btn" disabled>Next →</button>
+                    </div>
+                    <div class="selected-items-summary" id="selected-properties-summary">
+                        <strong>Selected properties:</strong> <span id="selected-properties-count">0</span>
+                        <div id="selected-properties-list" class="selected-items-list"></div>
+                    </div>
                 </div>
             </div>
 
-            <button class="next-btn" id="repos-next">Continue to Prompt Review</button>
+            <div class="step-navigation">
+                <button class="back-btn" id="repos-back">← Back to Authentication</button>
+                <button class="next-btn" id="repos-next">Continue to Prompt Review</button>
+            </div>
         </div>
 
         <!-- Step 4: Prompt Review -->
@@ -197,9 +221,12 @@
                     </ul>
                 </div>
                 
-                <button class="execute-btn" id="execute-workflow">
-                    🚀 Execute Workflow
-                </button>
+                <div class="step-navigation">
+                    <button class="back-btn" id="prompt-back">← Back to Repository Selection</button>
+                    <button class="execute-btn" id="execute-workflow">
+                        🚀 Execute Workflow
+                    </button>
+                </div>
             </div>
         </div>
 
