@@ -1188,7 +1188,6 @@ async function findCopilotBot(repoName) {
         
         // Look for copilot-swe-agent in the current page
         for (const node of suggestedActors.nodes) {
-            console.log(node)
             if (node.login === 'copilot-swe-agent') {
                 return node;
             }
@@ -1217,14 +1216,14 @@ async function assignCopilotUsingGraphQL(issueNodeId, copilotId) {
             actorIds: [copilotId]
         }
     };
-    
+    console.log('Assigning Copilot with variables')
     const response = await fetch('https://api.github.com/graphql', {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${appState.authToken}`,
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ mutation, variables })
+        body: JSON.stringify({ "query":mutation, "variables":variables })
     });
     
     if (!response.ok) {
@@ -1256,6 +1255,17 @@ function updateLoadingMessage(message) {
 
 function showSuccess() {
     successModal.classList.remove('hidden');
+    // Attach handler to restart button (if not already attached)
+    const restartBtn = document.querySelector('.restart-btn');
+    if (restartBtn && !restartBtn.dataset.bound) {
+        restartBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            // Clear the hash and reload to start fresh at step 1
+            window.location.hash = '';
+            location.reload();
+        });
+        restartBtn.dataset.bound = 'true';
+    }
 }
 
 function showNotification(message, type = 'info') {
