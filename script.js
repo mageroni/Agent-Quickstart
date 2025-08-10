@@ -1188,6 +1188,7 @@ async function findCopilotBot(repoName) {
         
         // Look for copilot-swe-agent in the current page
         for (const node of suggestedActors.nodes) {
+            console.log(node)
             if (node.login === 'copilot-swe-agent') {
                 return node;
             }
