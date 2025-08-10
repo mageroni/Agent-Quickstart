@@ -36,10 +36,6 @@
         <!-- Header -->
         <header class="header">
             <h1 class="main-title">🚀 GitHub Copilot Agent Quickstart</h1>
-            <p class="subtitle">Automate your development workflow with AI-powered assistance</p>
-            <div class="navigation-hint">
-                <small>💡 Tip: Click completed steps to go back or use Alt + Arrow keys to navigate</small>
-            </div>
         </header>
 
         <!-- Step 1: Choose Your Use Case -->
@@ -88,10 +84,26 @@
                     <h4>🔐 Required Token Permissions</h4>
                     <p>Your token needs the following permissions:</p>
                     <ul>
-                        <li><strong>repo</strong> - Full control of private repositories</li>
-                        <li><strong>metadata</strong> - Read repository metadata</li>
-                        <li><strong>issues</strong> - Read and write issues</li>
-                        <li><strong>actions</strong> - Read and write repository actions</li>
+                        <li>
+                            <b>Classic token:</b>
+                            <br>
+                            <strong>repo</strong> – Full control of private repositories
+                        </li>
+                        <li><b>Fine-grained token:</b>
+                        <ul>
+                            <li><strong>Repository level:</strong>
+                                <ul>
+                                    <li>Read access to <strong>metadata</strong></li>
+                                    <li>Read and Write access to <strong>issues</strong></li>
+                                </ul>
+                            </li>
+                            <li><strong>Organization level:</strong>
+                                <ul>
+                                    <li>Read access to <strong>organization custom properties</strong></li>
+                                </ul>
+                            </li>
+                        </ul>
+                        </li>
                     </ul>
                     <p class="security-note">💡 These values are only stored for this session and will be cleared when you refresh the page.</p>
                 </div>
