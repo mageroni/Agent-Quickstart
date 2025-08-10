@@ -28,13 +28,9 @@ A sleek JavaScript web application for automating GitHub Copilot Agent workflows
 
 2. **Serve the application**
    ```bash
-   # Using Python (most common)
-   python3 -m http.server 8080
-   
-   # Or using Node.js
-   npx serve .
-   
-   # Or using any other static file server
+   # Using npm
+   npm install
+   npm run start
    ```
 
 3. **Open in browser**
@@ -55,7 +51,7 @@ Provide your GitHub credentials:
   - `repo` - Full control of private repositories
   - `metadata` - Read repository metadata
   - `issues` - Read and write issues
-  - `actions` - Read and write repository actions
+  - `custom properties` - Read organization custom properties
 
 ### Step 3: Repository Selection
 Choose how to select repositories:
@@ -76,7 +72,7 @@ Choose how to select repositories:
 
 ## 🛠 Technical Details
 
-- **Pure JavaScript** - No frameworks or build tools required
+- **Pure JavaScript** - No frameworks required
 - **GitHub REST API** - For repository and organization data
 - **GitHub GraphQL API** - For Copilot bot assignment
 - **External Prompt Sources** - Fetches prompts from awesome-copilot repository
@@ -86,7 +82,7 @@ Choose how to select repositories:
 
 The application fetches use case-specific prompts from the [awesome-copilot](https://github.com/github/awesome-copilot) repository:
 
-- **Tests Creation**: `chatmodes/tdd-red.chatmode.md`
+- **Tests Creation**: `prompts/breakdown-test.prompt.md`
 - **Code Documentation**: `prompts/project-workflow-analysis-blueprint-generator.prompt.md`
 - **Technical Debt**: `chatmodes/tdd-refactor.chatmode.md`
 
