@@ -1,5 +1,391 @@
-// Global state management
+/**
+ * Application configuration constants
+ */
+const APP_CONFIG = {
+    API: {
+        GITHUB_BASE_URL: 'https://api.github.com',
+        GITHUB_GRAPHQL_URL: 'https://api.github.com/graphql',
+        RATE_LIMIT_DELAY: 1000,
+        REQUEST_TIMEOUT: 30000
+    },
+    PAGINATION: {
+        DEFAULT_PAGE_SIZE: 50,
+        MAX_ITEMS: 5000
+    },
+    UI: {
+        AUTO_ADVANCE_DELAY: 500,
+        NOTIFICATION_DURATION: 3000
+    },
+    PROMPTS: {
+        BASE_URL: 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main',
+        TESTS: '/prompts/breakdown-test.prompt.md',
+        DOCUMENTATION: '/prompts/project-workflow-analysis-blueprint-generator.prompt.md',
+        TECHNICAL_DEBT: '/chatmodes/tdd-refactor.chatmode.md'
+    }
+};
+
+/**
+ * Input validation and sanitization utilities
+ */
+const ValidationUtils = {
+    /**
+     * Sanitize string input to prevent XSS
+     * @param {string} input - Input string to sanitize
+     * @returns {string} Sanitized string
+     */
+    sanitizeString(input) {
+        if (typeof input !== 'string') return '';
+        return input.replace(/[<>'"&]/g, '');
+    },
+
+    /**
+     * Validate GitHub organization name
+     * @param {string} orgName - Organization name to validate
+     * @returns {boolean} True if valid
+     */
+    isValidOrgName(orgName) {
+        if (!orgName || typeof orgName !== 'string') return false;
+        const sanitized = this.sanitizeString(orgName.trim());
+        return /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/.test(sanitized);
+    },
+
+    /**
+     * Validate GitHub token format (basic check)
+     * @param {string} token - Token to validate
+     * @returns {boolean} True if valid format
+     */
+    isValidToken(token) {
+        if (!token || typeof token !== 'string') return false;
+        const sanitized = token.trim();
+        // GitHub tokens should be alphanumeric with underscores, minimum length
+        return /^[a-zA-Z0-9_]{20,}$/.test(sanitized);
+    }
+};
+
+/**
+ * Centralized API utilities with enhanced error handling and security
+ */
+const APIUtils = {
+    /**
+     * Enhanced fetch with timeout, error handling, and security headers
+     * @param {string} url - API endpoint URL
+     * @param {Object} options - Fetch options
+     * @param {number} timeout - Request timeout in milliseconds
+     * @returns {Promise<Response>} Enhanced fetch response
+     */
+    async secureFetch(url, options = {}, timeout = APP_CONFIG.API.REQUEST_TIMEOUT) {
+        // Add security headers and timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        
+        const secureOptions = {
+            ...options,
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'GitHub-Copilot-Agent-Quickstart/1.0',
+                'X-Requested-With': 'XMLHttpRequest',
+                ...options.headers
+            }
+        };
+        
+        try {
+            const response = await fetch(url, secureOptions);
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                throw new APIError(`HTTP ${response.status}: ${response.statusText}`, response.status, url);
+            }
+            
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new APIError('Request timeout', 408, url);
+            }
+            throw error instanceof APIError ? error : new APIError(error.message, 0, url);
+        }
+    },
+
+    /**
+     * GitHub API request with authentication and rate limiting
+     * @param {string} endpoint - API endpoint (relative to GitHub API base)
+     * @param {Object} options - Additional options
+     * @returns {Promise<Object>} JSON response
+     */
+    async githubAPI(endpoint, options = {}) {
+        if (!appState.authToken) {
+            throw new APIError('Authentication token required', 401);
+        }
+        
+        const url = `${APP_CONFIG.API.GITHUB_BASE_URL}${endpoint}`;
+        const headers = SecurityUtils.createAuthHeaders(appState.authToken);
+        
+        const response = await this.secureFetch(url, {
+            ...options,
+            headers: { ...headers, ...options.headers }
+        });
+        
+        return await response.json();
+    },
+
+    /**
+     * GitHub GraphQL API request
+     * @param {string} query - GraphQL query
+     * @param {Object} variables - Query variables
+     * @returns {Promise<Object>} GraphQL response
+     */
+    async githubGraphQL(query, variables = {}) {
+        if (!appState.authToken) {
+            throw new APIError('Authentication token required', 401);
+        }
+        
+        const response = await this.secureFetch(APP_CONFIG.API.GITHUB_GRAPHQL_URL, {
+            method: 'POST',
+            headers: SecurityUtils.createAuthHeaders(appState.authToken),
+            body: JSON.stringify({ query, variables })
+        });
+        
+        const data = await response.json();
+        
+        if (data.errors) {
+            throw new APIError(`GraphQL Error: ${data.errors.map(e => e.message).join(', ')}`, 400);
+        }
+        
+        return data;
+    }
+};
+
+/**
+ * Custom API Error class for better error handling
+ */
+class APIError extends Error {
+    constructor(message, status = 0, url = '') {
+        super(message);
+        this.name = 'APIError';
+        this.status = status;
+        this.url = url;
+    }
+}
+
+/**
+ * Enhanced logging utilities
+ */
+const Logger = {
+    /**
+     * Log error with context
+     * @param {string} message - Error message
+     * @param {Error} error - Error object
+     * @param {Object} context - Additional context
+     */
+    error(message, error = null, context = {}) {
+        const logData = {
+            level: 'ERROR',
+            message,
+            timestamp: new Date().toISOString(),
+            context
+        };
+        
+        if (error) {
+            logData.error = {
+                name: error.name,
+                message: error.message,
+                stack: error.stack?.split('\n').slice(0, 5) // Limit stack trace
+            };
+        }
+        
+        console.error('[AGENT-QUICKSTART]', logData);
+    },
+
+    /**
+     * Log warning with context
+     * @param {string} message - Warning message
+     * @param {Object} context - Additional context
+     */
+    warn(message, context = {}) {
+        console.warn('[AGENT-QUICKSTART]', {
+            level: 'WARN',
+            message,
+            timestamp: new Date().toISOString(),
+            context
+        });
+    },
+
+    /**
+     * Log info with context
+     * @param {string} message - Info message
+     * @param {Object} context - Additional context
+     */
+    info(message, context = {}) {
+        console.info('[AGENT-QUICKSTART]', {
+            level: 'INFO',
+            message,
+            timestamp: new Date().toISOString(),
+            context
+        });
+    }
+};
+
+/**
+ * User notification system
+ */
+const NotificationSystem = {
+    /**
+     * Show user notification
+     * @param {string} message - Notification message
+     * @param {string} type - Notification type (success, error, warning, info)
+     * @param {number} duration - Display duration in milliseconds
+     */
+    show(message, type = 'info', duration = APP_CONFIG.UI.NOTIFICATION_DURATION) {
+        // Remove existing notifications
+        document.querySelectorAll('.notification').forEach(n => n.remove());
+        
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.innerHTML = `
+            <div class="notification-content">
+                <span class="notification-icon">${this.getIcon(type)}</span>
+                <span class="notification-message">${ValidationUtils.sanitizeString(message)}</span>
+                <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Animate in
+        setTimeout(() => notification.classList.add('show'), 100);
+        
+        // Auto remove
+        if (duration > 0) {
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.classList.remove('show');
+                    setTimeout(() => notification.remove(), 300);
+                }
+            }, duration);
+        }
+    },
+
+    /**
+     * Get icon for notification type
+     * @param {string} type - Notification type
+     * @returns {string} Icon character
+     */
+    getIcon(type) {
+        switch (type) {
+            case 'success': return '✅';
+            case 'error': return '❌';
+            case 'warning': return '⚠️';
+            default: return 'ℹ️';
+        }
+    }
+};
+
+/**
+ * Performance utilities for optimization
+ */
+const PerformanceUtils = {
+    /**
+     * Debounce function calls to prevent excessive API requests
+     * @param {Function} func - Function to debounce
+     * @param {number} delay - Delay in milliseconds
+     * @returns {Function} Debounced function
+     */
+    debounce(func, delay) {
+        let timeoutId;
+        return function (...args) {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => func.apply(this, args), delay);
+        };
+    },
+
+    /**
+     * Throttle function calls for performance
+     * @param {Function} func - Function to throttle
+     * @param {number} limit - Time limit in milliseconds
+     * @returns {Function} Throttled function
+     */
+    throttle(func, limit) {
+        let inThrottle;
+        return function (...args) {
+            if (!inThrottle) {
+                func.apply(this, args);
+                inThrottle = true;
+                setTimeout(() => inThrottle = false, limit);
+            }
+        };
+    },
+
+    /**
+     * Cache API responses to reduce redundant calls
+     */
+    cache: new Map(),
+
+    /**
+     * Get cached response or fetch new one
+     * @param {string} key - Cache key
+     * @param {Function} fetchFn - Function to fetch data if not cached
+     * @param {number} ttl - Time to live in milliseconds
+     * @returns {Promise} Cached or fresh data
+     */
+    async getCached(key, fetchFn, ttl = 300000) { // 5 minutes default
+        const cached = this.cache.get(key);
+        
+        if (cached && Date.now() - cached.timestamp < ttl) {
+            Logger.info('Using cached data', { key });
+            return cached.data;
+        }
+        
+        const data = await fetchFn();
+        this.cache.set(key, { data, timestamp: Date.now() });
+        Logger.info('Cached new data', { key });
+        return data;
+    }
+};
+
+/**
+ * Global notification function for compatibility
+ * @param {string} message - Notification message
+ * @param {string} type - Notification type
+ */
+function showNotification(message, type = 'info') {
+    NotificationSystem.show(message, type);
+}
+
+/**
+ * Secure token handling utilities
+ */
+const SecurityUtils = {
+    /**
+     * Mask token for display purposes
+     * @param {string} token - Token to mask
+     * @returns {string} Masked token
+     */
+    maskToken(token) {
+        if (!token || token.length < 8) return '***';
+        return token.substring(0, 4) + '***' + token.substring(token.length - 4);
+    },
+
+    /**
+     * Create authorization header
+     * @param {string} token - GitHub token
+     * @returns {Object} Headers object
+     */
+    createAuthHeaders(token) {
+        return {
+            'Authorization': `token ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+        };
+    }
+};
+
+/**
+ * Global state management
+ */
 class AppState {
+    /**
+     * Initialize application state with secure defaults
+     */
     constructor() {
         this.currentStep = 1;
         this.selectedUseCase = null;
@@ -12,10 +398,10 @@ class AppState {
         this.allProperties = [];
         this.promptContent = '';
         
-        // Pagination state
+        // Pagination state using configuration
         this.reposPagination = {
             currentPage: 1,
-            itemsPerPage: 50,
+            itemsPerPage: APP_CONFIG.PAGINATION.DEFAULT_PAGE_SIZE,
             totalPages: 1,
             filteredRepos: [],
             searchTerm: ''
@@ -23,17 +409,17 @@ class AppState {
         
         this.propertiesPagination = {
             currentPage: 1,
-            itemsPerPage: 50,
+            itemsPerPage: APP_CONFIG.PAGINATION.DEFAULT_PAGE_SIZE,
             totalPages: 1,
             filteredProperties: [],
             searchTerm: ''
         };
         
-        // Use case prompts URLs
+        // Use case prompts URLs from configuration
         this.promptUrls = {
-            'tests': 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main/prompts/breakdown-test.prompt.md',
-            'documentation': 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main/prompts/project-workflow-analysis-blueprint-generator.prompt.md',
-            'technical-debt': 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main/chatmodes/tdd-refactor.chatmode.md'
+            'tests': APP_CONFIG.PROMPTS.BASE_URL + APP_CONFIG.PROMPTS.TESTS,
+            'documentation': APP_CONFIG.PROMPTS.BASE_URL + APP_CONFIG.PROMPTS.DOCUMENTATION,
+            'technical-debt': APP_CONFIG.PROMPTS.BASE_URL + APP_CONFIG.PROMPTS.TECHNICAL_DEBT
         };
     }
     
@@ -142,9 +528,9 @@ function initializeApp() {
     // Selection method dropdown
     selectionDropdown.addEventListener('change', handleSelectionMethodChange);
     
-    // Search functionality
-    document.getElementById('repo-search').addEventListener('input', filterRepos);
-    document.getElementById('properties-search').addEventListener('input', filterProperties);
+    // Search functionality with debouncing for better performance
+    document.getElementById('repo-search').addEventListener('input', debouncedFilterRepos);
+    document.getElementById('properties-search').addEventListener('input', debouncedFilterProperties);
     
     // Pagination functionality
     document.getElementById('repos-prev-page').addEventListener('click', () => changeReposPage(-1));
@@ -461,21 +847,70 @@ function selectUseCase(button) {
     }
 }
 
-// Authentication validation
+/**
+ * Enhanced authentication validation with security checks
+ */
 function validateInputs() {
-    const orgName = orgNameInput.value.trim();
-    const authToken = authTokenInput.value.trim();
+    const orgNameRaw = orgNameInput.value.trim();
+    const authTokenRaw = authTokenInput.value.trim();
     
-    appState.orgName = orgName;
-    appState.authToken = authToken;
+    // Sanitize inputs to prevent XSS
+    const orgName = ValidationUtils.sanitizeString(orgNameRaw);
+    const authToken = authTokenRaw; // Don't sanitize token, just validate format
+    
+    // Validate inputs
+    const isValidOrg = ValidationUtils.isValidOrgName(orgName);
+    const isValidToken = ValidationUtils.isValidToken(authToken);
+    
+    // Update app state only with valid inputs
+    appState.orgName = isValidOrg ? orgName : '';
+    appState.authToken = isValidToken ? authToken : '';
+    
+    // Show validation feedback
+    showInputValidationFeedback('org-name', isValidOrg, 'Invalid organization name format');
+    showInputValidationFeedback('auth-token', isValidToken, 'Invalid token format');
     
     // Enable/disable the next button
     if (authNextBtn) {
-        authNextBtn.disabled = !orgName || !authToken;
+        authNextBtn.disabled = !isValidOrg || !isValidToken;
     }
     
     // Update progress step accessibility
     updateStepAccessibility();
+}
+
+/**
+ * Show validation feedback for input fields
+ * @param {string} fieldId - Input field ID
+ * @param {boolean} isValid - Whether the input is valid
+ * @param {string} errorMessage - Error message to display
+ */
+function showInputValidationFeedback(fieldId, isValid, errorMessage) {
+    const field = document.getElementById(fieldId);
+    if (!field) return;
+    
+    // Remove existing validation classes
+    field.classList.remove('input-valid', 'input-invalid');
+    
+    // Add appropriate validation class
+    if (field.value.trim()) {
+        field.classList.add(isValid ? 'input-valid' : 'input-invalid');
+        
+        // Show/hide error message
+        let errorDiv = field.nextElementSibling;
+        if (!errorDiv || !errorDiv.classList.contains('validation-error')) {
+            errorDiv = document.createElement('div');
+            errorDiv.className = 'validation-error';
+            field.parentNode.insertBefore(errorDiv, field.nextSibling);
+        }
+        
+        if (!isValid) {
+            errorDiv.textContent = errorMessage;
+            errorDiv.style.display = 'block';
+        } else {
+            errorDiv.style.display = 'none';
+        }
+    }
 }
 
 function updateStepAccessibility() {
@@ -490,15 +925,19 @@ function updateStepAccessibility() {
     });
 }
 
+/**
+ * Enhanced authentication validation with user feedback
+ */
 function handleAuthNext() {
-    if (!appState.orgName || !appState.authToken) {
-        alert('Please fill in both organization name and authentication token.');
+    if (!ValidationUtils.isValidOrgName(appState.orgName) || !ValidationUtils.isValidToken(appState.authToken)) {
+        showNotification('Please provide valid organization name and authentication token.', 'error');
         return;
     }
     
-    // Update org display
-    orgDisplay.textContent = appState.orgName;
+    // Update org display with sanitized value
+    orgDisplay.textContent = SecurityUtils.maskToken(appState.orgName);
     
+    Logger.info('Authentication completed', { org: appState.orgName });
     goToStep(3);
 }
 
@@ -527,29 +966,53 @@ function handleSelectionMethodChange() {
     }
 }
 
+/**
+ * Enhanced repository loading with pagination and error handling
+ */
 async function loadRepositories() {
     try {
         showLoading('Loading repositories...');
+        Logger.info('Starting repository loading', { org: appState.orgName });
         
-        // Load up to 5000 repositories (GitHub API allows 1000 per page max)
-        const allRepos = [];
-        const maxRepos = 5000;
-        const perPage = 100; // GitHub's max per page
-        let page = 1;
+        const allRepos = await loadAllRepositories();
         
-        while (allRepos.length < maxRepos) {
-            const response = await fetch(`https://api.github.com/orgs/${appState.orgName}/repos?per_page=${perPage}&page=${page}&sort=updated`, {
-                headers: {
-                    'Authorization': `token ${appState.authToken}`,
-                    'Accept': 'application/vnd.github.v3+json'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`Failed to load repositories: ${response.status} ${response.statusText}`);
-            }
-            
-            const repos = await response.json();
+        appState.allRepos = allRepos.slice(0, APP_CONFIG.PAGINATION.MAX_ITEMS);
+        appState.reposPagination.filteredRepos = appState.allRepos;
+        appState.reposPagination.currentPage = 1;
+        appState.reposPagination.totalPages = Math.ceil(
+            appState.allRepos.length / appState.reposPagination.itemsPerPage
+        );
+        
+        renderRepositories();
+        updateSelectedReposSummary();
+        
+        Logger.info('Repository loading completed', { 
+            count: appState.allRepos.length,
+            org: appState.orgName
+        });
+        
+    } catch (error) {
+        Logger.error('Error loading repositories', error, { org: appState.orgName });
+        alert(`Error loading repositories: ${error.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
+/**
+ * Load all repositories with pagination support
+ * @returns {Promise<Array>} Array of repository objects
+ */
+async function loadAllRepositories() {
+    const allRepos = [];
+    const perPage = 100; // GitHub's max per page
+    let page = 1;
+    
+    while (allRepos.length < APP_CONFIG.PAGINATION.MAX_ITEMS) {
+        try {
+            const repos = await APIUtils.githubAPI(
+                `/orgs/${appState.orgName}/repos?per_page=${perPage}&page=${page}&sort=updated`
+            );
             
             if (repos.length === 0) {
                 break; // No more repos
@@ -561,26 +1024,25 @@ async function loadRepositories() {
             // Update loading message
             updateLoadingMessage(`Loading repositories... (${allRepos.length} loaded)`);
             
-            // Break if we've loaded the max or if we got less than a full page
-            if (allRepos.length >= maxRepos || repos.length < perPage) {
+            // Break if we got less than a full page
+            if (repos.length < perPage) {
                 break;
             }
+            
+            // Small delay to prevent rate limiting
+            if (allRepos.length < APP_CONFIG.PAGINATION.MAX_ITEMS) {
+                await new Promise(resolve => 
+                    setTimeout(resolve, APP_CONFIG.API.RATE_LIMIT_DELAY / 2)
+                );
+            }
+            
+        } catch (error) {
+            Logger.warn('Failed to load repository page', { page, error: error.message });
+            break; // Stop loading on error
         }
-        
-        appState.allRepos = allRepos.slice(0, maxRepos); // Ensure we don't exceed 5000
-        appState.reposPagination.filteredRepos = appState.allRepos;
-        appState.reposPagination.currentPage = 1;
-        appState.reposPagination.totalPages = Math.ceil(appState.allRepos.length / appState.reposPagination.itemsPerPage);
-        
-        renderRepositories();
-        updateSelectedReposSummary();
-        
-    } catch (error) {
-        console.error('Error loading repositories:', error);
-        alert(`Error loading repositories: ${error.message}`);
-    } finally {
-        hideLoading();
     }
+    
+    return allRepos;
 }
 
 function renderRepositories() {
@@ -677,50 +1139,82 @@ function removeRepoSelection(repoName) {
     }
 }
 
+/**
+ * Enhanced custom properties loading with fallback support
+ */
 async function loadCustomProperties() {
     try {
         showLoading('Loading custom properties...');
+        Logger.info('Loading custom properties', { org: appState.orgName });
         
-        const response = await fetch(`https://api.github.com/orgs/${appState.orgName}/properties/schema`, {
-            headers: {
-                'Authorization': `token ${appState.authToken}`,
-                'Accept': 'application/vnd.github.v3+json'
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`Failed to load custom properties: ${response.status} ${response.statusText}`);
+        try {
+            const properties = await APIUtils.githubAPI(`/orgs/${appState.orgName}/properties/schema`);
+            appState.allProperties = properties.slice(0, APP_CONFIG.PAGINATION.MAX_ITEMS);
+            
+            Logger.info('Custom properties loaded successfully', { 
+                count: appState.allProperties.length,
+                org: appState.orgName
+            });
+            
+        } catch (error) {
+            Logger.warn('Failed to load custom properties, using mock data', { 
+                error: error.message,
+                org: appState.orgName
+            });
+            
+            // Show mock data if API call fails
+            appState.allProperties = getMockCustomProperties();
         }
         
-        const properties = await response.json();
-        appState.allProperties = properties.slice(0, 5000); // Limit to 5000
         appState.propertiesPagination.filteredProperties = appState.allProperties;
         appState.propertiesPagination.currentPage = 1;
-        appState.propertiesPagination.totalPages = Math.ceil(appState.allProperties.length / appState.propertiesPagination.itemsPerPage);
+        appState.propertiesPagination.totalPages = Math.ceil(
+            appState.allProperties.length / appState.propertiesPagination.itemsPerPage
+        );
         
         renderCustomProperties();
         updateSelectedPropertiesSummary();
         
     } catch (error) {
-        console.error('Error loading custom properties:', error);
-        // Show mock data if API call fails
-        const mockProperties = [
-            { property_name: 'environment', value_type: 'single_select', description: 'Deployment environment' },
-            { property_name: 'team', value_type: 'string', description: 'Owning team' },
-            { property_name: 'priority', value_type: 'single_select', description: 'Project priority' },
-            { property_name: 'framework', value_type: 'string', description: 'Technology framework' },
-            { property_name: 'status', value_type: 'single_select', description: 'Project status' }
-        ];
-        appState.allProperties = mockProperties;
-        appState.propertiesPagination.filteredProperties = appState.allProperties;
-        appState.propertiesPagination.currentPage = 1;
-        appState.propertiesPagination.totalPages = Math.ceil(appState.allProperties.length / appState.propertiesPagination.itemsPerPage);
-        
-        renderCustomProperties();
-        updateSelectedPropertiesSummary();
+        Logger.error('Error in loadCustomProperties', error, { org: appState.orgName });
+        alert(`Error loading custom properties: ${error.message}`);
     } finally {
         hideLoading();
     }
+}
+
+/**
+ * Get mock custom properties for demonstration
+ * @returns {Array} Array of mock property objects
+ */
+function getMockCustomProperties() {
+    return [
+        { 
+            property_name: 'environment', 
+            value_type: 'single_select', 
+            description: 'Deployment environment (dev, staging, prod)' 
+        },
+        { 
+            property_name: 'team', 
+            value_type: 'string', 
+            description: 'Owning team or department' 
+        },
+        { 
+            property_name: 'priority', 
+            value_type: 'single_select', 
+            description: 'Project priority level' 
+        },
+        { 
+            property_name: 'framework', 
+            value_type: 'string', 
+            description: 'Primary technology framework used' 
+        },
+        { 
+            property_name: 'status', 
+            value_type: 'single_select', 
+            description: 'Current project status' 
+        }
+    ];
 }
 
 function renderCustomProperties() {
@@ -812,9 +1306,12 @@ function removePropertySelection(propertyName) {
     }
 }
 
-// Search functionality
+/**
+ * Enhanced search functionality with performance optimizations
+ */
 async function filterRepos() {
-    const searchTerm = document.getElementById('repo-search').value.toLowerCase().trim();
+    const searchInput = document.getElementById('repo-search');
+    const searchTerm = ValidationUtils.sanitizeString(searchInput.value.toLowerCase().trim());
     appState.reposPagination.searchTerm = searchTerm;
     
     if (!searchTerm) {
@@ -827,10 +1324,16 @@ async function filterRepos() {
             (repo.description && repo.description.toLowerCase().includes(searchTerm))
         );
         
-        // If we have few local matches, try to search for more repos via API
+        // If we have few local matches, try to search for more repos via API with caching
         if (localMatches.length < 10 && searchTerm.length >= 2) {
             try {
-                const apiMatches = await searchRepositoriesAPI(searchTerm);
+                const cacheKey = `search_${appState.orgName}_${searchTerm}`;
+                const apiMatches = await PerformanceUtils.getCached(
+                    cacheKey,
+                    () => searchRepositoriesAPI(searchTerm),
+                    60000 // 1 minute cache
+                );
+                
                 // Combine and deduplicate
                 const allMatches = [...localMatches];
                 apiMatches.forEach(repo => {
@@ -840,7 +1343,7 @@ async function filterRepos() {
                 });
                 appState.reposPagination.filteredRepos = allMatches;
             } catch (error) {
-                console.warn('API search failed, using local results only:', error);
+                Logger.warn('API search failed, using local results only', { error: error.message });
                 appState.reposPagination.filteredRepos = localMatches;
             }
         } else {
@@ -850,29 +1353,36 @@ async function filterRepos() {
     
     // Reset to first page and update pagination
     appState.reposPagination.currentPage = 1;
-    appState.reposPagination.totalPages = Math.ceil(appState.reposPagination.filteredRepos.length / appState.reposPagination.itemsPerPage);
+    appState.reposPagination.totalPages = Math.ceil(
+        appState.reposPagination.filteredRepos.length / appState.reposPagination.itemsPerPage
+    );
     
     renderRepositories();
 }
 
+/**
+ * Enhanced API search with proper error handling
+ * @param {string} searchTerm - Search term
+ * @returns {Promise<Array>} Search results
+ */
 async function searchRepositoriesAPI(searchTerm) {
-    const response = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(searchTerm)}+org:${appState.orgName}&per_page=50`, {
-        headers: {
-            'Authorization': `token ${appState.authToken}`,
-            'Accept': 'application/vnd.github.v3+json'
-        }
-    });
-    
-    if (!response.ok) {
-        throw new Error(`Search API failed: ${response.status}`);
+    try {
+        const data = await APIUtils.githubAPI(
+            `/search/repositories?q=${encodeURIComponent(searchTerm)}+org:${appState.orgName}&per_page=50`
+        );
+        return data.items || [];
+    } catch (error) {
+        Logger.error('Repository search API failed', error, { searchTerm });
+        throw error;
     }
-    
-    const data = await response.json();
-    return data.items || [];
 }
 
+/**
+ * Enhanced properties filtering with performance optimization
+ */
 function filterProperties() {
-    const searchTerm = document.getElementById('properties-search').value.toLowerCase().trim();
+    const searchInput = document.getElementById('properties-search');
+    const searchTerm = ValidationUtils.sanitizeString(searchInput.value.toLowerCase().trim());
     appState.propertiesPagination.searchTerm = searchTerm;
     
     if (!searchTerm) {
@@ -886,10 +1396,16 @@ function filterProperties() {
     
     // Reset to first page and update pagination
     appState.propertiesPagination.currentPage = 1;
-    appState.propertiesPagination.totalPages = Math.ceil(appState.propertiesPagination.filteredProperties.length / appState.propertiesPagination.itemsPerPage);
+    appState.propertiesPagination.totalPages = Math.ceil(
+        appState.propertiesPagination.filteredProperties.length / appState.propertiesPagination.itemsPerPage
+    );
     
     renderCustomProperties();
 }
+
+// Create debounced versions for better performance
+const debouncedFilterRepos = PerformanceUtils.debounce(filterRepos, 300);
+const debouncedFilterProperties = PerformanceUtils.debounce(filterProperties, 300);
 
 function handleReposNext() {
     if (appState.selectionMethod === 'selected' && appState.selectedRepos.length === 0) {
@@ -982,13 +1498,37 @@ function updateTargetReposList() {
     });
 }
 
-// Workflow execution
+/**
+ * Enhanced workflow execution with proper error handling and rate limiting
+ */
 async function executeWorkflow() {
     try {
         showLoading('Starting workflow execution...');
+        Logger.info('Starting workflow execution', { 
+            useCase: appState.selectedUseCase,
+            selectionMethod: appState.selectionMethod,
+            org: appState.orgName
+        });
         
-        // Get updated prompt content
-        appState.promptContent = promptContentTextarea.value;
+        // Validate workflow preconditions
+        if (!appState.selectedUseCase) {
+            throw new Error('Please select a use case first.');
+        }
+        
+        if (!ValidationUtils.isValidOrgName(appState.orgName)) {
+            throw new Error('Please provide a valid organization name.');
+        }
+        
+        if (!ValidationUtils.isValidToken(appState.authToken)) {
+            throw new Error('Please provide a valid authentication token.');
+        }
+        
+        // Get updated prompt content with validation
+        const promptContent = promptContentTextarea.value.trim();
+        if (!promptContent) {
+            throw new Error('Please provide prompt content.');
+        }
+        appState.promptContent = ValidationUtils.sanitizeString(promptContent);
         
         // Determine which repositories to process
         let targetRepos = [];
@@ -998,20 +1538,26 @@ async function executeWorkflow() {
                 targetRepos = await getAllOrgRepos();
                 break;
             case 'selected':
+                if (appState.selectedRepos.length === 0) {
+                    throw new Error('Please select at least one repository.');
+                }
                 targetRepos = appState.selectedRepos.map(name => ({ name }));
                 break;
             case 'properties':
                 targetRepos = await getReposWithCustomProperties();
                 break;
+            default:
+                throw new Error('Invalid repository selection method.');
         }
         
         if (targetRepos.length === 0) {
             throw new Error('No repositories found to process.');
         }
         
+        Logger.info('Processing repositories', { count: targetRepos.length });
         updateLoadingMessage(`Processing ${targetRepos.length} repositories...`);
         
-        // Process each repository
+        // Process each repository with enhanced error handling
         const results = [];
         for (let i = 0; i < targetRepos.length; i++) {
             const repo = targetRepos[i];
@@ -1019,46 +1565,106 @@ async function executeWorkflow() {
             
             try {
                 const issueResult = await createIssueAndAssignCopilot(repo.name);
-                results.push({ repo: repo.name, success: true, issue: issueResult });
+                results.push({ 
+                    repo: repo.name, 
+                    success: true, 
+                    issue: issueResult,
+                    issueUrl: issueResult.html_url
+                });
             } catch (error) {
-                console.error(`Failed to process repo ${repo.name}:`, error);
-                results.push({ repo: repo.name, success: false, error: error.message });
+                Logger.error('Failed to process repository', error, { repo: repo.name });
+                results.push({ 
+                    repo: repo.name, 
+                    success: false, 
+                    error: error.message,
+                    errorType: error.name
+                });
             }
             
-            // Add a small delay to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Rate limiting with configurable delay
+            if (i < targetRepos.length - 1) {
+                await new Promise(resolve => 
+                    setTimeout(resolve, APP_CONFIG.API.RATE_LIMIT_DELAY)
+                );
+            }
         }
         
         hideLoading();
         
-        // Show results
+        // Enhanced results reporting
         const successCount = results.filter(r => r.success).length;
+        const failureCount = results.length - successCount;
+        
+        Logger.info('Workflow execution completed', { 
+            total: results.length,
+            successful: successCount,
+            failed: failureCount
+        });
+        
         if (successCount > 0) {
             showSuccess();
+            if (failureCount > 0) {
+                Logger.warn('Some repositories failed to process', { 
+                    failedRepos: results.filter(r => !r.success).map(r => r.repo)
+                });
+            }
         } else {
-            alert('No issues were created successfully. Please check your permissions and try again.');
+            const errorMessage = 'No issues were created successfully. Please check your permissions and try again.';
+            Logger.error('Workflow execution failed completely', null, { results });
+            alert(errorMessage);
         }
         
     } catch (error) {
         hideLoading();
-        console.error('Workflow execution error:', error);
-        alert(`Workflow execution failed: ${error.message}`);
+        Logger.error('Workflow execution error', error);
+        
+        // User-friendly error messages
+        let userMessage = error.message;
+        if (error instanceof APIError) {
+            switch (error.status) {
+                case 401:
+                    userMessage = 'Authentication failed. Please check your token permissions.';
+                    break;
+                case 403:
+                    userMessage = 'Access denied. Please ensure your token has the required permissions.';
+                    break;
+                case 404:
+                    userMessage = 'Organization or repository not found. Please check the organization name.';
+                    break;
+                case 408:
+                    userMessage = 'Request timeout. Please try again.';
+                    break;
+                default:
+                    userMessage = `API Error: ${error.message}`;
+            }
+        }
+        
+        alert(`Workflow execution failed: ${userMessage}`);
     }
 }
 
+/**
+ * Get all repositories for the organization
+ * @returns {Promise<Array>} Array of repository objects
+ */
 async function getAllOrgRepos() {
-    const response = await fetch(`https://api.github.com/orgs/${appState.orgName}/repos?per_page=100`, {
-        headers: {
-            'Authorization': `token ${appState.authToken}`,
-            'Accept': 'application/vnd.github.v3+json'
-        }
-    });
-    
-    if (!response.ok) {
-        throw new Error(`Failed to fetch organization repositories: ${response.status}`);
+    try {
+        Logger.info('Fetching organization repositories', { org: appState.orgName });
+        
+        const repos = await APIUtils.githubAPI(`/orgs/${appState.orgName}/repos?per_page=100`);
+        
+        Logger.info('Successfully fetched organization repositories', { 
+            org: appState.orgName, 
+            count: repos.length 
+        });
+        
+        return repos;
+    } catch (error) {
+        Logger.error('Failed to fetch organization repositories', error, { 
+            org: appState.orgName 
+        });
+        throw new Error(`Failed to fetch organization repositories: ${error.message}`);
     }
-    
-    return await response.json();
 }
 
 async function getReposWithCustomProperties() {
@@ -1067,37 +1673,64 @@ async function getReposWithCustomProperties() {
     return appState.selectedRepos.map(name => ({ name }));
 }
 
+/**
+ * Enhanced issue creation with proper error handling and validation
+ * @param {string} repoName - Repository name
+ * @returns {Promise<Object>} Created issue object
+ */
 async function createIssueAndAssignCopilot(repoName) {
-    // Create the issue
-    const issueResponse = await fetch(`https://api.github.com/repos/${appState.orgName}/${repoName}/issues`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `token ${appState.authToken}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            title: `${getUseCaseDisplayName(appState.selectedUseCase)} - Copilot Agent Task`,
-            body: appState.promptContent,
-            labels: ['copilot-agent', appState.selectedUseCase]
-        })
-    });
-    
-    if (!issueResponse.ok) {
-        throw new Error(`Failed to create issue in ${repoName}: ${issueResponse.status}`);
-    }
-    
-    const issue = await issueResponse.json();
-    
-    // Try to assign Copilot (this might fail if the bot isn't available)
     try {
-        await assignCopilotToIssue(repoName, issue.number);
+        // Validate inputs
+        if (!repoName || !ValidationUtils.sanitizeString(repoName)) {
+            throw new APIError('Invalid repository name', 400);
+        }
+        
+        if (!appState.promptContent.trim()) {
+            throw new APIError('Prompt content is required', 400);
+        }
+        
+        Logger.info('Creating issue', { repo: repoName, useCase: appState.selectedUseCase });
+        
+        // Create the issue with sanitized content
+        const issueData = {
+            title: `${getUseCaseDisplayName(appState.selectedUseCase)} - Copilot Agent Task`,
+            body: ValidationUtils.sanitizeString(appState.promptContent),
+            labels: ['copilot-agent', appState.selectedUseCase]
+        };
+        
+        const issue = await APIUtils.githubAPI(`/repos/${appState.orgName}/${repoName}/issues`, {
+            method: 'POST',
+            body: JSON.stringify(issueData)
+        });
+        
+        Logger.info('Issue created successfully', { 
+            repo: repoName, 
+            issueNumber: issue.number,
+            issueId: issue.id
+        });
+        
+        // Try to assign Copilot (this might fail if the bot isn't available)
+        try {
+            await assignCopilotToIssue(repoName, issue.number);
+            Logger.info('Copilot assigned successfully', { repo: repoName, issueNumber: issue.number });
+        } catch (error) {
+            Logger.warn('Failed to assign Copilot to issue', { 
+                repo: repoName, 
+                issueNumber: issue.number,
+                error: error.message
+            });
+            // Continue even if assignment fails
+        }
+        
+        return issue;
+        
     } catch (error) {
-        console.warn(`Failed to assign Copilot to issue in ${repoName}:`, error);
-        // Continue even if assignment fails
+        Logger.error('Failed to create issue and assign Copilot', error, { 
+            repo: repoName,
+            org: appState.orgName
+        });
+        throw error;
     }
-    
-    return issue;
 }
 
 async function assignCopilotToIssue(repoName, issueNumber) {
