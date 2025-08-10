@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Copilot Agent Quickstart</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Progress Bar -->
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div class="progress-step active" data-step="1">
+                    <span class="step-number">1</span>
+                    <span class="step-label">Use Case</span>
+                </div>
+                <div class="progress-step" data-step="2">
+                    <span class="step-number">2</span>
+                    <span class="step-label">Authentication</span>
+                </div>
+                <div class="progress-step" data-step="3">
+                    <span class="step-number">3</span>
+                    <span class="step-label">Repository Selection</span>
+                </div>
+                <div class="progress-step" data-step="4">
+                    <span class="step-number">4</span>
+                    <span class="step-label">Prompt Review</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Header -->
+        <header class="header">
+            <h1 class="main-title">🚀 GitHub Copilot Agent Quickstart</h1>
+            <p class="subtitle">Automate your development workflow with AI-powered assistance</p>
+            <div class="navigation-hint">
+                <small>💡 Tip: Click completed steps to go back or use Alt + Arrow keys to navigate</small>
+            </div>
+        </header>
+
+        <!-- Step 1: Choose Your Use Case -->
+        <div class="step-content" id="step-1">
+            <h2>Choose your use case</h2>
+            <p class="step-description">Select the type of task you want GitHub Copilot to help you with across your repositories.</p>
+            
+            <div class="use-case-buttons">
+                <button class="use-case-btn" data-use-case="tests">
+                    <div class="use-case-icon">🧪</div>
+                    <h3>Tests Creation</h3>
+                    <p>Generate comprehensive test suites for your codebase</p>
+                </button>
+                
+                <button class="use-case-btn" data-use-case="documentation">
+                    <div class="use-case-icon">📚</div>
+                    <h3>Code Documentation</h3>
+                    <p>Create detailed documentation for your projects</p>
+                </button>
+                
+                <button class="use-case-btn" data-use-case="technical-debt">
+                    <div class="use-case-icon">🔧</div>
+                    <h3>Technical Debt</h3>
+                    <p>Identify and refactor technical debt in your code</p>
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: Authentication Setup -->
+        <div class="step-content hidden" id="step-2">
+            <h2>Authentication Setup</h2>
+            <p class="step-description">Provide your GitHub organization details and authentication token.</p>
+            
+            <div class="form-container">
+                <div class="form-group">
+                    <label for="org-name">Organization Name</label>
+                    <input type="text" id="org-name" placeholder="your-org-name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="auth-token">Personal Access Token or GitHub App Token</label>
+                    <input type="password" id="auth-token" placeholder="ghp_..." required>
+                </div>
+                
+                <div class="permissions-info">
+                    <h4>🔐 Required Token Permissions</h4>
+                    <p>Your token needs the following permissions:</p>
+                    <ul>
+                        <li><strong>repo</strong> - Full control of private repositories</li>
+                        <li><strong>metadata</strong> - Read repository metadata</li>
+                        <li><strong>issues</strong> - Read and write issues</li>
+                        <li><strong>actions</strong> - Read and write repository actions</li>
+                    </ul>
+                    <p class="security-note">💡 These values are only stored for this session and will be cleared when you refresh the page.</p>
+                </div>
+                
+                <div class="step-navigation">
+                    <button class="back-btn" id="auth-back">← Back to Use Case</button>
+                    <button class="next-btn" id="auth-next">Continue to Repository Selection</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Choose Your Repos -->
+        <div class="step-content hidden" id="step-3">
+            <h2>Choose your repos</h2>
+            <p class="step-description">Select which repositories you want to apply the chosen use case to.</p>
+            
+            <div class="selection-method">
+                <label for="selection-dropdown">Selection Method:</label>
+                <select id="selection-dropdown">
+                    <option value="all">All Repos</option>
+                    <option value="selected">Selected Repos</option>
+                    <option value="properties">Custom Properties</option>
+                </select>
+            </div>
+
+            <div class="repo-content">
+                <!-- All Repos Message -->
+                <div id="all-repos-message" class="selection-content">
+                    <div class="success-message">
+                        <div class="success-icon">✅</div>
+                        <p>We got it! We'll execute Copilot Coding Agent in all repos in <strong id="org-display"></strong>.</p>
+                    </div>
+                </div>
+
+                <!-- Selected Repos Table -->
+                <div id="selected-repos-content" class="selection-content hidden">
+                    <div class="search-container">
+                        <input type="text" id="repo-search" placeholder="🔍 Search repositories...">
+                    </div>
+                    <div class="table-container">
+                        <table id="repos-table">
+                            <thead>
+                                <tr>
+                                    <th>Select</th>
+                                    <th>Repository</th>
+                                    <th>Description</th>
+                                    <th>Language</th>
+                                    <th>Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody id="repos-tbody">
+                                <!-- Repositories will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination-container" id="repos-pagination">
+                        <button id="repos-prev-page" class="pagination-btn" disabled>← Previous</button>
+                        <span id="repos-page-info">Page 1 of 1</span>
+                        <button id="repos-next-page" class="pagination-btn" disabled>Next →</button>
+                    </div>
+                    <div class="selected-items-summary" id="selected-repos-summary">
+                        <strong>Selected repositories:</strong> <span id="selected-repos-count">0</span>
+                        <div id="selected-repos-list" class="selected-items-list"></div>
+                    </div>
+                </div>
+
+                <!-- Custom Properties Table -->
+                <div id="custom-properties-content" class="selection-content hidden">
+                    <div class="search-container">
+                        <input type="text" id="properties-search" placeholder="🔍 Search custom properties...">
+                    </div>
+                    <div class="table-container">
+                        <table id="properties-table">
+                            <thead>
+                                <tr>
+                                    <th>Select</th>
+                                    <th>Property Name</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="properties-tbody">
+                                <!-- Custom properties will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination-container" id="properties-pagination">
+                        <button id="properties-prev-page" class="pagination-btn" disabled>← Previous</button>
+                        <span id="properties-page-info">Page 1 of 1</span>
+                        <button id="properties-next-page" class="pagination-btn" disabled>Next →</button>
+                    </div>
+                    <div class="selected-items-summary" id="selected-properties-summary">
+                        <strong>Selected properties:</strong> <span id="selected-properties-count">0</span>
+                        <div id="selected-properties-list" class="selected-items-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="step-navigation">
+                <button class="back-btn" id="repos-back">← Back to Authentication</button>
+                <button class="next-btn" id="repos-next">Continue to Prompt Review</button>
+            </div>
+        </div>
+
+        <!-- Step 4: Prompt Review -->
+        <div class="step-content hidden" id="step-4">
+            <h2>Prompt Review</h2>
+            <p class="step-description">Review and customize the prompt that will be used to create issues in your selected repositories.</p>
+            
+            <div class="prompt-container">
+                <div class="prompt-header">
+                    <h3 id="prompt-title">Prompt for Selected Use Case</h3>
+                    <div class="prompt-info">
+                        <span id="selected-use-case-display"></span>
+                    </div>
+                </div>
+                
+                <div class="prompt-editor">
+                    <textarea id="prompt-content" placeholder="Loading prompt..."></textarea>
+                </div>
+                
+                <div class="execution-summary">
+                    <h4>📋 Execution Summary</h4>
+                    <p>This prompt will be used to create issues in:</p>
+                    <ul id="target-repos-list">
+                        <!-- Selected repositories will be listed here -->
+                    </ul>
+                </div>
+                
+                <div class="step-navigation">
+                    <button class="back-btn" id="prompt-back">← Back to Repository Selection</button>
+                    <button class="execute-btn" id="execute-workflow">
+                        🚀 Execute Workflow
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading and Success States -->
+        <div class="modal hidden" id="loading-modal">
+            <div class="modal-content">
+                <div class="spinner"></div>
+                <h3>Processing your request...</h3>
+                <p id="loading-message">Initializing workflow</p>
+            </div>
+        </div>
+
+        <div class="modal hidden" id="success-modal">
+            <div class="modal-content success">
+                <div class="success-icon-large">🎉</div>
+                <h3>Workflow Completed Successfully!</h3>
+                <p>Issues have been created and assigned to GitHub Copilot in your selected repositories.</p>
+                <button class="restart-btn" onclick="location.reload()">Start New Workflow</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

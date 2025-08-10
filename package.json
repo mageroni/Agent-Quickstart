@@ -1,0 +1,24 @@
+{
+  "name": "agent-quickstart",
+  "version": "1.0.0",
+  "description": "GitHub Copilot Agent Quickstart - A web application for automating development workflows with AI-powered assistance",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server . -p 8000 -o",
+    "dev": "npx http-server . -p 8000 -o",
+    "serve": "npx http-server . -p 8000",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "github",
+    "copilot",
+    "ai",
+    "automation",
+    "quickstart"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
