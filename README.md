@@ -2,6 +2,20 @@
 
 A sleek JavaScript web application for automating GitHub Copilot Agent workflows across your repositories. This tool provides a streamlined interface to create issues and assign GitHub Copilot for three key use cases: test creation, code documentation, and technical debt management.
 
+## 📚 Contents
+
+- [✨ Features](#-features)
+- [🚀 Quick Start - Option 1. Running in GitHub Codespaces](#-quick-start---option-1-running-in-github-codespaces)
+- [🚀 Quick Start - Option 2. Running Locally](#-quick-start---option-2-running-locally)
+- [🔧 Usage](#-usage)
+- [🔐 Security & Privacy](#-security--privacy)
+- [🛠 Technical Details](#-technical-details)
+- [📝 Prompts](#-prompts)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
+
+
+
 ## ✨ Features
 
 - **Beautiful Purple/Black GitHub Features-inspired Design** - Modern, responsive interface
@@ -18,7 +32,36 @@ A sleek JavaScript web application for automating GitHub Copilot Agent workflows
 - **Copilot Bot Assignment** - Automatically assigns GitHub Copilot to created issues
 - **Session-only Storage** - No persistent data storage for security
 
-## 🚀 Quick Start
+## 🚀 Quick Start - Option 1. Running in GitHub Codespaces
+
+You can run this application directly in your browser using [GitHub Codespaces](https://github.com/features/codespaces), which provides a full development environment in the cloud. No local setup is required!
+
+### What is Codespaces?
+GitHub Codespaces lets you develop entirely in the cloud, using Visual Studio Code or your browser. It automatically sets up the environment, installs dependencies, and lets you run and preview your app—all from any device.
+
+### How to Launch This App in Codespaces
+
+1. **Open the Repository in GitHub**
+
+2. **Create a Codespace**
+  - Click the green **Code** button (top right), then select **Create codespace on main**.
+  - Wait for the Codespace to start (it may take a minute).
+
+3. **Install and Run the App**
+  - In the Codespaces terminal (bottom panel), run:
+    ```bash
+    npm install
+    npm run start
+    ```
+
+4. **Preview the App**
+  - After running `npm run start`, you’ll see a message like `Local: http://localhost:8080`.
+  - Click the **"Ports"** tab in the bottom panel, find port 8080, and click the **Open in Browser** button.
+  - The app will open in a new browser tab.
+
+**That’s it!** You’re now running the app in the cloud, with no local setup required.
+
+## 🚀 Quick Start - Option 2. Running Locally
 
 1. **Clone the repository**
    ```bash
@@ -97,3 +140,5 @@ The application fetches use case-specific prompts from the [awesome-copilot](htt
 ## 📄 License
 
 This project is open source and available under the [MIT License](LICENSE).
+
+---
