@@ -31,7 +31,7 @@ class AppState {
         
         // Use case prompts URLs
         this.promptUrls = {
-            'tests': 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main/chatmodes/tdd-red.chatmode.md',
+            'tests': 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main/prompts/breakdown-test.prompt.md',
             'documentation': 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main/prompts/project-workflow-analysis-blueprint-generator.prompt.md',
             'technical-debt': 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main/chatmodes/tdd-refactor.chatmode.md'
         };
