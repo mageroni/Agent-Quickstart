@@ -7,6 +7,7 @@ A sleek JavaScript web application for automating GitHub Copilot Agent workflows
 - [✨ Features](#-features)
 - [🚀 Quick Start - Option 1. Running in GitHub Codespaces](#-quick-start---option-1-running-in-github-codespaces)
 - [🚀 Quick Start - Option 2. Running Locally](#-quick-start---option-2-running-locally)
+- [🚀 Quick Start - Option 3. Running in Container](#-quick-start---option-3-running-in-container)
 - [🔧 Usage](#-usage)
 - [🔐 Security & Privacy](#-security--privacy)
 - [🛠 Technical Details](#-technical-details)
@@ -78,6 +79,34 @@ GitHub Codespaces lets you develop entirely in the cloud, using Visual Studio Co
 
 3. **Open in browser**
    Navigate to `http://localhost:8080`
+
+## 🚀 Quick Start - Option 3. Running in Container
+
+Run the application in a Docker container for a consistent, isolated environment.
+
+### Prerequisites
+- [Docker](https://docs.docker.com/get-docker/) installed on your system
+
+### Steps
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/MG-Octodemo/Agent-Quickstart.git
+   cd Agent-Quickstart
+   ```
+
+2. **Build the Docker image**
+   ```bash
+   docker build -t agent-quickstart .
+   ```
+
+3. **Run the container**
+   ```bash
+   docker run -p 8000:8000 agent-quickstart
+   ```
+
+4. **Open in browser**
+   Navigate to `http://localhost:8000`
 
 ## 🔧 Usage
 
