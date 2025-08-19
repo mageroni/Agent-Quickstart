@@ -1526,9 +1526,14 @@ function updateTargetReposList() {
             break;
         case 'properties':
             const propertyDescriptions = appState.selectedProperties.map(property => 
-                property.value ? `${property.propertyName}: ${property.value}` : `${property.propertyName}: (no value)`
+                property.value ? `${property.propertyName}: ${property.value}` : `${property.propertyName}: (any value)`
             );
-            targetRepos = [`Repositories with custom properties: ${propertyDescriptions.join(', ')}`];
+            
+            if (propertyDescriptions.length > 0) {
+                targetRepos = [`Repositories with custom properties: ${propertyDescriptions.join(', ')}`];
+            } else {
+                targetRepos = ['No custom properties selected'];
+            }
             break;
     }
     
@@ -1709,9 +1714,76 @@ async function getAllOrgRepos() {
 }
 
 async function getReposWithCustomProperties() {
-    // This would require additional API calls to find repos with specific custom properties
-    // For now, return selected repos as a fallback
-    return appState.selectedRepos.map(name => ({ name }));
+    try {
+        Logger.info('Fetching repositories with custom properties', { 
+            org: appState.orgName,
+            selectedProperties: appState.selectedProperties
+        });
+        
+        // Call GitHub API to get custom property values for organization repositories
+        const response = await APIUtils.githubAPI(`/orgs/${appState.orgName}/properties/values`);
+        
+        if (!response || !Array.isArray(response)) {
+            Logger.warn('No custom property values found or invalid response format');
+            return [];
+        }
+        
+        // Filter repositories that match the selected custom properties and values
+        const filteredRepos = [];
+        const matchingRepos = new Set();
+        
+        for (const repoData of response) {
+            const repoName = repoData.repository_name;
+            let matchesAllProperties = true;
+            
+            // Check if this repository matches ALL selected custom properties
+            for (const selectedProperty of appState.selectedProperties) {
+                const propertyMatch = repoData.properties?.find(
+                    prop => prop.property_name === selectedProperty.propertyName
+                );
+                
+                if (!propertyMatch) {
+                    // Repository doesn't have this property
+                    matchesAllProperties = false;
+                    break;
+                }
+                
+                // If a specific value was selected, check if it matches
+                if (selectedProperty.value && selectedProperty.value.trim()) {
+                    if (propertyMatch.value !== selectedProperty.value) {
+                        matchesAllProperties = false;
+                        break;
+                    }
+                }
+                // If no specific value was selected, just having the property is enough
+            }
+            
+            if (matchesAllProperties && !matchingRepos.has(repoName)) {
+                matchingRepos.add(repoName);
+                filteredRepos.push({ 
+                    name: repoName
+                });
+            }
+        }
+        
+        Logger.info('Successfully filtered repositories by custom properties', { 
+            org: appState.orgName,
+            totalFound: filteredRepos.length,
+            selectedProperties: appState.selectedProperties.length
+        });
+        
+        return filteredRepos;
+        
+    } catch (error) {
+        Logger.error('Failed to fetch repositories with custom properties', error, { 
+            org: appState.orgName,
+            selectedProperties: appState.selectedProperties
+        });
+        
+        // Fallback: if API call fails, show error and return empty array
+        showNotification('Failed to fetch repositories with custom properties. Please check your permissions.', 'error');
+        return [];
+    }
 }
 
 /**
