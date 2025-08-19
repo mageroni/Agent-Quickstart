@@ -393,7 +393,7 @@ class AppState {
         this.authToken = '';
         this.selectionMethod = 'all';
         this.selectedRepos = [];
-        this.selectedProperties = [];
+        this.selectedProperties = []; // Array of {propertyName, value} objects
         this.allRepos = [];
         this.allProperties = [];
         this.promptContent = '';
@@ -763,8 +763,8 @@ function restoreSelections() {
         setTimeout(() => {
             updateSelectedPropertiesSummary();
             // Update checkboxes for visible properties
-            appState.selectedProperties.forEach(propertyName => {
-                const checkbox = document.querySelector(`input[data-property-name="${propertyName}"]`);
+            appState.selectedProperties.forEach(property => {
+                const checkbox = document.querySelector(`input[data-property-name="${property.propertyName}"]`);
                 if (checkbox) {
                     checkbox.checked = true;
                 }
@@ -1228,13 +1228,35 @@ function renderCustomProperties() {
     
     propertiesToShow.forEach(property => {
         const row = document.createElement('tr');
-        const isSelected = appState.selectedProperties.includes(property.property_name);
+        const selectedProperty = appState.selectedProperties.find(sp => sp.propertyName === property.property_name);
+        const isSelected = !!selectedProperty;
+        const currentValue = selectedProperty ? selectedProperty.value : '';
+        
+        // Create value input based on property type
+        let valueInput = '';
+        if (property.value_type === 'single_select') {
+            // For single_select, provide a dropdown or text input for now
+            // In a real implementation, you might fetch available options from GitHub API
+            valueInput = `<input type="text" 
+                placeholder="Enter value (e.g., dev, staging, prod)" 
+                value="${currentValue}" 
+                onchange="updatePropertyValue('${property.property_name}', this.value)"
+                ${!isSelected ? 'disabled' : ''}>`;
+        } else {
+            // For string and other types, use text input
+            valueInput = `<input type="text" 
+                placeholder="Enter value" 
+                value="${currentValue}" 
+                onchange="updatePropertyValue('${property.property_name}', this.value)"
+                ${!isSelected ? 'disabled' : ''}>`;
+        }
+        
         row.innerHTML = `
             <td>
                 <input type="checkbox" data-property-name="${property.property_name}" onchange="togglePropertySelection('${property.property_name}')" ${isSelected ? 'checked' : ''}>
             </td>
             <td>${property.property_name}</td>
-            <td>${property.value_type}</td>
+            <td>${valueInput}</td>
             <td>${property.description || 'No description'}</td>
         `;
         tbody.appendChild(row);
@@ -1263,14 +1285,26 @@ function changePropertiesPage(direction) {
 }
 
 function togglePropertySelection(propertyName) {
-    const index = appState.selectedProperties.indexOf(propertyName);
-    if (index === -1) {
-        appState.selectedProperties.push(propertyName);
+    const existingIndex = appState.selectedProperties.findIndex(sp => sp.propertyName === propertyName);
+    if (existingIndex === -1) {
+        // Add new property with empty value
+        appState.selectedProperties.push({ propertyName, value: '' });
     } else {
-        appState.selectedProperties.splice(index, 1);
+        // Remove existing property
+        appState.selectedProperties.splice(existingIndex, 1);
     }
     updateStepAccessibility();
     updateSelectedPropertiesSummary();
+    // Re-render to update input field state
+    renderCustomProperties();
+}
+
+function updatePropertyValue(propertyName, value) {
+    const existingProperty = appState.selectedProperties.find(sp => sp.propertyName === propertyName);
+    if (existingProperty) {
+        existingProperty.value = value;
+        updateSelectedPropertiesSummary();
+    }
 }
 
 function updateSelectedPropertiesSummary() {
@@ -1280,19 +1314,20 @@ function updateSelectedPropertiesSummary() {
     countSpan.textContent = appState.selectedProperties.length;
     
     listDiv.innerHTML = '';
-    appState.selectedProperties.forEach(propertyName => {
+    appState.selectedProperties.forEach(property => {
         const tag = document.createElement('span');
         tag.className = 'selected-item-tag';
+        const displayText = property.value ? `${property.propertyName}: ${property.value}` : `${property.propertyName}: (no value)`;
         tag.innerHTML = `
-            ${propertyName}
-            <button class="remove-btn" onclick="removePropertySelection('${propertyName}')" title="Remove">×</button>
+            ${displayText}
+            <button class="remove-btn" onclick="removePropertySelection('${property.propertyName}')" title="Remove">×</button>
         `;
         listDiv.appendChild(tag);
     });
 }
 
 function removePropertySelection(propertyName) {
-    const index = appState.selectedProperties.indexOf(propertyName);
+    const index = appState.selectedProperties.findIndex(sp => sp.propertyName === propertyName);
     if (index !== -1) {
         appState.selectedProperties.splice(index, 1);
         updateSelectedPropertiesSummary();
@@ -1303,6 +1338,9 @@ function removePropertySelection(propertyName) {
         if (checkbox) {
             checkbox.checked = false;
         }
+        
+        // Re-render to update input field state
+        renderCustomProperties();
     }
 }
 
@@ -1487,7 +1525,15 @@ function updateTargetReposList() {
             targetRepos = appState.selectedRepos;
             break;
         case 'properties':
-            targetRepos = [`Repositories with custom properties: ${appState.selectedProperties.join(', ')}`];
+            const propertyDescriptions = appState.selectedProperties.map(property => 
+                property.value ? `${property.propertyName}: ${property.value}` : `${property.propertyName}: (any value)`
+            );
+            
+            if (propertyDescriptions.length > 0) {
+                targetRepos = [`Repositories with custom properties: ${propertyDescriptions.join(', ')}`];
+            } else {
+                targetRepos = ['No custom properties selected'];
+            }
             break;
     }
     
@@ -1668,9 +1714,76 @@ async function getAllOrgRepos() {
 }
 
 async function getReposWithCustomProperties() {
-    // This would require additional API calls to find repos with specific custom properties
-    // For now, return selected repos as a fallback
-    return appState.selectedRepos.map(name => ({ name }));
+    try {
+        Logger.info('Fetching repositories with custom properties', { 
+            org: appState.orgName,
+            selectedProperties: appState.selectedProperties
+        });
+        
+        // Call GitHub API to get custom property values for organization repositories
+        const response = await APIUtils.githubAPI(`/orgs/${appState.orgName}/properties/values`);
+        
+        if (!response || !Array.isArray(response)) {
+            Logger.warn('No custom property values found or invalid response format');
+            return [];
+        }
+        
+        // Filter repositories that match the selected custom properties and values
+        const filteredRepos = [];
+        const matchingRepos = new Set();
+        
+        for (const repoData of response) {
+            const repoName = repoData.repository_name;
+            let matchesAllProperties = true;
+            
+            // Check if this repository matches ALL selected custom properties
+            for (const selectedProperty of appState.selectedProperties) {
+                const propertyMatch = repoData.properties?.find(
+                    prop => prop.property_name === selectedProperty.propertyName
+                );
+                
+                if (!propertyMatch) {
+                    // Repository doesn't have this property
+                    matchesAllProperties = false;
+                    break;
+                }
+                
+                // If a specific value was selected, check if it matches
+                if (selectedProperty.value && selectedProperty.value.trim()) {
+                    if (propertyMatch.value !== selectedProperty.value) {
+                        matchesAllProperties = false;
+                        break;
+                    }
+                }
+                // If no specific value was selected, just having the property is enough
+            }
+            
+            if (matchesAllProperties && !matchingRepos.has(repoName)) {
+                matchingRepos.add(repoName);
+                filteredRepos.push({ 
+                    name: repoName
+                });
+            }
+        }
+        
+        Logger.info('Successfully filtered repositories by custom properties', { 
+            org: appState.orgName,
+            totalFound: filteredRepos.length,
+            selectedProperties: appState.selectedProperties.length
+        });
+        
+        return filteredRepos;
+        
+    } catch (error) {
+        Logger.error('Failed to fetch repositories with custom properties', error, { 
+            org: appState.orgName,
+            selectedProperties: appState.selectedProperties
+        });
+        
+        // Fallback: if API call fails, show error and return empty array
+        showNotification('Failed to fetch repositories with custom properties. Please check your permissions.', 'error');
+        return [];
+    }
 }
 
 /**
