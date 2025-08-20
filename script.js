@@ -17,10 +17,9 @@ const APP_CONFIG = {
         NOTIFICATION_DURATION: 3000
     },
     PROMPTS: {
-        BASE_URL: 'https://raw.githubusercontent.com/github/awesome-copilot/refs/heads/main',
-        TESTS: '/prompts/breakdown-test.prompt.md',
-        DOCUMENTATION: '/prompts/project-workflow-analysis-blueprint-generator.prompt.md',
-        TECHNICAL_DEBT: '/chatmodes/tdd-refactor.chatmode.md'
+        TESTS: '/prompts/unit-test.prompt.md',
+        DOCUMENTATION: '/prompts/documentation.prompt.md',
+        TECHNICAL_DEBT: '/prompts/technical-debt-reduction.prompt.md'
     }
 };
 
@@ -416,10 +415,20 @@ class AppState {
         };
         
         // Use case prompts URLs from configuration
+        // Ensure we use the local prompt files from this app (origin-relative) and not an external BASE_URL
+        const toLocalUrl = (path) => {
+            try {
+                // Use the current page origin to construct an absolute URL pointing to local files
+                return new URL(path, window.location.origin).href;
+            } catch (e) {
+                // Fallback to the raw path if URL construction fails
+                return path;
+            }
+        };
         this.promptUrls = {
-            'tests': APP_CONFIG.PROMPTS.BASE_URL + APP_CONFIG.PROMPTS.TESTS,
-            'documentation': APP_CONFIG.PROMPTS.BASE_URL + APP_CONFIG.PROMPTS.DOCUMENTATION,
-            'technical-debt': APP_CONFIG.PROMPTS.BASE_URL + APP_CONFIG.PROMPTS.TECHNICAL_DEBT
+            'tests': toLocalUrl(APP_CONFIG.PROMPTS.TESTS),
+            'documentation': toLocalUrl(APP_CONFIG.PROMPTS.DOCUMENTATION),
+            'technical-debt': toLocalUrl(APP_CONFIG.PROMPTS.TECHNICAL_DEBT)
         };
     }
     

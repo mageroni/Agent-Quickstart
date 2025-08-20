@@ -152,11 +152,11 @@ Choose how to select repositories:
 
 ## 📝 Prompts
 
-The application fetches use case-specific prompts from the [awesome-copilot](https://github.com/github/awesome-copilot) repository:
+The application inspires from use case-specific prompts from the [awesome-copilot](https://github.com/github/awesome-copilot) repository:
 
-- **Tests Creation**: `prompts/breakdown-test.prompt.md`
-- **Code Documentation**: `prompts/project-workflow-analysis-blueprint-generator.prompt.md`
-- **Technical Debt**: `chatmodes/tdd-refactor.chatmode.md`
+- **Tests Creation**: `prompts/unit-test.prompt.md`
+- **Code Documentation**: `prompts/documentation.prompt.md`
+- **Technical Debt**: `prompts/technical-debt-reduction.prompt.md`
 
 ## 🤝 Contributing
 
